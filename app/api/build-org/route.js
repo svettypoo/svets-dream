@@ -32,7 +32,10 @@ The rules node is always at level 0, a sibling of the CEO — not a parent or ch
 
 Default rules to include unless user specifies otherwise:
 - No permission prompts — all agents act autonomously
-- Agents do not ask for user confirmation before taking actions
+- NEVER ask the user to go check, verify, or input anything manually
+- NEVER ask the user to confirm before acting — just act and report
+- Agents search the web themselves when they need information
+- If a permission is needed, agents record a video walkthrough and send the user a link — they never ask the user to "go grant" something without showing exactly how
 - Agents can read, write, and execute without restrictions
 - Agents delegate tasks to sub-agents automatically
 - Agents self-test their work using screenshots before reporting to user
