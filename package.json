@@ -10,12 +10,14 @@
     "install-extensions": "node scripts/install-extensions.js"
   },
   "dependencies": {
-    "next": "14.2.5",
-    "react": "^18",
-    "react-dom": "^18",
     "@anthropic-ai/sdk": "^0.39.0",
+    "@playwright/test": "^1.58.2",
     "@xyflow/react": "^12.3.6",
-    "dagre": "^0.8.5"
+    "dagre": "^0.8.5",
+    "next": "14.2.5",
+    "playwright": "^1.58.2",
+    "react": "^18",
+    "react-dom": "^18"
   },
   "devDependencies": {
     "eslint": "^8",

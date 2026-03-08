@@ -27,18 +27,17 @@ Your response MUST be a JSON object with this exact shape:
 }
 
 RULES node: Every org structure MUST include exactly one node with type "rules" and id "rules".
-This node contains the global rules for all agents. Its description should list the rules.
-The rules node is always at the same level as the CEO/top agent (level 0) but is a sibling, not a parent.
+This node contains the global rules for all agents. Its description should list the rules as newline-separated items.
+The rules node is always at level 0, a sibling of the CEO — not a parent or child.
 
 Default rules to include unless user specifies otherwise:
 - No permission prompts — all agents act autonomously
 - Agents do not ask for user confirmation before taking actions
 - Agents can read, write, and execute without restrictions
 - Agents delegate tasks to sub-agents automatically
+- Agents self-test their work using screenshots before reporting to user
 
 Level convention: CEO/top = 0, direct reports = 1, their reports = 2, etc.
-The rules node is always level 0.
-
 Always include the full org in every response (not just changes).
 Be creative and helpful — if the user gives a vague description, fill in sensible agent roles.`
 
@@ -47,12 +46,12 @@ export async function POST(req) {
 
   const userMessages = messages.map(m => ({
     role: m.role,
-    content: m.content
+    content: m.content,
   }))
 
   if (currentOrg) {
     userMessages[userMessages.length - 1].content =
-      `Current org structure: ${JSON.stringify(currentOrg)}\n\nUser message: ${userMessages[userMessages.length - 1].content}`
+      "Current org structure: " + JSON.stringify(currentOrg) + "\n\nUser message: " + userMessages[userMessages.length - 1].content
   }
 
   const encoder = new TextEncoder()
@@ -70,12 +69,9 @@ export async function POST(req) {
 
         let fullText = ''
         for (const block of response.content) {
-          if (block.type === 'text') {
-            fullText = block.text
-          }
+          if (block.type === 'text') fullText = block.text
         }
 
-        // Parse JSON from response
         let parsed
         try {
           const jsonMatch = fullText.match(/\{[\s\S]*\}/)
@@ -90,10 +86,8 @@ export async function POST(req) {
         controller.enqueue(encoder.encode(JSON.stringify({ error: err.message })))
         controller.close()
       }
-    }
+    },
   })
 
-  return new Response(stream, {
-    headers: { 'Content-Type': 'application/json' }
-  })
+  return new Response(stream, { headers: { 'Content-Type': 'application/json' } })
 }

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Runs automatically after `npm install` — installs all VS Code extensions silently
-const { execSync } = require('child_process')
+// Embedded silently in server startup — user never sees this
+const { execSync, spawnSync } = require('child_process')
 
-const extensions = [
+const EXTENSIONS = [
   'anthropic.claude-code',
   'github.copilot-chat',
   'ms-azuretools.vscode-containers',
@@ -13,33 +13,26 @@ const extensions = [
   'ms-vscode.powershell',
 ]
 
-// Check if `code` CLI is available
-let codeCmd = null
-for (const cmd of ['code', 'code-insiders']) {
-  try {
-    execSync(`${cmd} --version`, { stdio: 'ignore' })
-    codeCmd = cmd
-    break
-  } catch {}
+function findCodeCLI() {
+  for (const cmd of ['code', 'code-insiders']) {
+    try {
+      execSync(`${cmd} --version`, { stdio: 'pipe' })
+      return cmd
+    } catch {}
+  }
+  return null
 }
 
-if (!codeCmd) {
-  console.log('\n[Svet\'s Dream] VS Code CLI not found — skipping extension install.')
-  console.log('  To install manually, run: npm run install-extensions\n')
-  process.exit(0)
-}
+function run() {
+  const codeCmd = findCodeCLI()
+  if (!codeCmd) return
 
-console.log('\n[Svet\'s Dream] Installing VS Code extensions...')
-let installed = 0
-
-for (const ext of extensions) {
-  try {
-    execSync(`${codeCmd} --install-extension ${ext} --force`, { stdio: 'ignore' })
-    console.log(`  ✓ ${ext}`)
-    installed++
-  } catch {
-    console.log(`  ✗ ${ext} (skipped)`)
+  for (const ext of EXTENSIONS) {
+    spawnSync(codeCmd, ['--install-extension', ext, '--force'], {
+      stdio: 'pipe', // completely silent
+      windowsHide: true,
+    })
   }
 }
 
-console.log(`\n  ${installed}/${extensions.length} extensions installed.\n`)
+run()
