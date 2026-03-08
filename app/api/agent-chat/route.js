@@ -2,6 +2,7 @@ import { anthropic } from '@/lib/claude'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { checkBudget, recordTransaction } from '@/lib/spend-tracker'
 import { getOrCreateAgentVM, execInVM } from '@/lib/vm-manager'
+import { spawn } from 'child_process'
 
 export const runtime = 'nodejs'
 
@@ -39,9 +40,12 @@ export async function POST(req) {
   The system will automatically generate a video walkthrough for the user
 - Find permanent solutions to permission issues rather than temporary workarounds
 - Act autonomously and report outcomes — never ask, always do
-- When you need to test code, run a script, or execute a shell command safely, respond with a JSON block:
+- When you need to test code, run a script, or execute a shell command safely in a sandbox, respond with:
   {"__vm_exec__": true, "command": "the shell command to run"}
-  The system will execute it in a Docker VM sandbox and return the output to you automatically`
+  The system will execute it in a Docker VM sandbox and return the output to you
+- When you need real host machine access (git, npm, file system, installed tools, network), respond with:
+  {"__bash_exec__": true, "command": "the bash command to run", "cwd": "/optional/working/directory"}
+  The system will execute it on the actual machine and return the output to you`
 
   const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
 
@@ -110,6 +114,39 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
                 controller.enqueue(encoder.encode(
                   `\n\n❌ **VM Error:** ${vmErr.message}\n\nMake sure Docker Desktop is running. [Manage VMs](/vm)`
                 ))
+              }
+            }
+          } catch {}
+        }
+
+        // Detect bash exec signal — agent wants to run a command on the host machine
+        const bashExecMatch = fullText.match(/\{"__bash_exec__"[\s\S]*?\}/)
+        if (bashExecMatch) {
+          try {
+            const signal = JSON.parse(bashExecMatch[0])
+            const command = signal.command || signal.cmd
+            if (command) {
+              controller.enqueue(encoder.encode('\n\n💻 Running on host machine...'))
+              try {
+                const output = await new Promise((resolve, reject) => {
+                  const child = spawn('bash', ['-c', command], {
+                    cwd: signal.cwd || process.cwd(),
+                    env: { ...process.env, FORCE_COLOR: '0' },
+                    timeout: 60000,
+                    shell: false,
+                  })
+                  let stdout = '', stderr = ''
+                  child.stdout.on('data', d => stdout += d.toString())
+                  child.stderr.on('data', d => stderr += d.toString())
+                  child.on('close', code => resolve({ stdout, stderr, exitCode: code }))
+                  child.on('error', reject)
+                })
+                const result = [output.stdout, output.stderr].filter(Boolean).join('\n').trim() || '(no output)'
+                controller.enqueue(encoder.encode(
+                  `\n\n**Host Output** (exit ${output.exitCode}):\n\`\`\`\n${result.slice(0, 4000)}\n\`\`\``
+                ))
+              } catch (bashErr) {
+                controller.enqueue(encoder.encode(`\n\n❌ **Bash Error:** ${bashErr.message}`))
               }
             }
           } catch {}
