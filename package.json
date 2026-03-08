@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "postinstall": "node scripts/install-extensions.js",
+    "install-extensions": "node scripts/install-extensions.js"
   },
   "dependencies": {
     "next": "14.2.5",
