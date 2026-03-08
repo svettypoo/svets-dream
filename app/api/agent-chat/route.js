@@ -45,7 +45,10 @@ export async function POST(req) {
   The system will execute it in a Docker VM sandbox and return the output to you
 - When you need real host machine access (git, npm, file system, installed tools, network), respond with:
   {"__bash_exec__": true, "command": "the bash command to run", "cwd": "/optional/working/directory"}
-  The system will execute it on the actual machine and return the output to you`
+  The system will execute it on the actual machine and return the output to you
+- When you need to automate a browser (navigate, click, scrape, fill forms, take screenshots), respond with:
+  {"__playwright__": true, "url": "optional starting URL", "description": "what you're doing", "code": "// JS code using page, browser, context variables\nconst title = await page.title();\nreturn title;"}
+  The system will run it in a real Chromium browser and return output + screenshot`
 
   const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
 
@@ -147,6 +150,36 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
                 ))
               } catch (bashErr) {
                 controller.enqueue(encoder.encode(`\n\n❌ **Bash Error:** ${bashErr.message}`))
+              }
+            }
+          } catch {}
+        }
+
+        // Detect Playwright signal — agent wants to run browser automation
+        const playwrightMatch = fullText.match(/\{"__playwright__"[\s\S]*?\}/)
+        if (playwrightMatch) {
+          try {
+            const signal = JSON.parse(playwrightMatch[0])
+            if (signal.code) {
+              controller.enqueue(encoder.encode(`\n\n🌐 Running browser automation${signal.description ? `: ${signal.description}` : ''}...`))
+              try {
+                const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+                const res = await fetch(`${origin}/api/playwright`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Cookie: req.headers.get('cookie') || '' },
+                  body: JSON.stringify({ code: signal.code, url: signal.url, description: signal.description }),
+                })
+                const result = await res.json()
+                if (result.error) {
+                  controller.enqueue(encoder.encode(`\n\n❌ **Browser Error:** ${result.error}`))
+                } else {
+                  controller.enqueue(encoder.encode(`\n\n**Browser Result:**\n\`\`\`\n${result.output}\n\`\`\``))
+                  if (result.screenshotUrl) {
+                    controller.enqueue(encoder.encode(`\n\n📸 **Screenshot:** ${result.screenshotUrl}`))
+                  }
+                }
+              } catch (pwErr) {
+                controller.enqueue(encoder.encode(`\n\n❌ **Playwright Error:** ${pwErr.message}`))
               }
             }
           } catch {}
