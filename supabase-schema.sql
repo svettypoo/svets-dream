@@ -61,3 +61,26 @@ create policy "Users manage own api keys"
 -- Index for fast transaction queries
 create index if not exists api_transactions_user_created
   on api_transactions(user_id, created_at desc);
+
+-- Virtual machines (Docker containers managed per user)
+create table if not exists user_vms (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  container_id text,            -- Docker container ID
+  image text not null default 'ubuntu:22.04',
+  status text not null default 'stopped',  -- stopped, running, error
+  memory_mb integer not null default 512,
+  created_at timestamptz default now(),
+  last_used_at timestamptz
+);
+
+alter table user_vms enable row level security;
+
+create policy "Users manage own vms"
+  on user_vms for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create index if not exists user_vms_user_id
+  on user_vms(user_id, created_at desc);

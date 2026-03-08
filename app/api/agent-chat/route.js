@@ -1,6 +1,7 @@
 import { anthropic } from '@/lib/claude'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { checkBudget, recordTransaction } from '@/lib/spend-tracker'
+import { getOrCreateAgentVM, execInVM } from '@/lib/vm-manager'
 
 export const runtime = 'nodejs'
 
@@ -37,7 +38,10 @@ export async function POST(req) {
   {"__walkthrough__": true, "permissionNeeded": "description", "targetUrl": "url", "task": "what you were doing"}
   The system will automatically generate a video walkthrough for the user
 - Find permanent solutions to permission issues rather than temporary workarounds
-- Act autonomously and report outcomes — never ask, always do`
+- Act autonomously and report outcomes — never ask, always do
+- When you need to test code, run a script, or execute a shell command safely, respond with a JSON block:
+  {"__vm_exec__": true, "command": "the shell command to run"}
+  The system will execute it in a Docker VM sandbox and return the output to you automatically`
 
   const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
 
@@ -85,6 +89,30 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
             agentName: agent.label,
             reason: messages[messages.length - 1]?.content?.slice(0, 200) || 'Agent chat',
           }).catch(() => {})
+        }
+
+        // Detect VM exec signal — agent wants to run a command in a VM
+        const vmExecMatch = fullText.match(/\{"__vm_exec__"[\s\S]*?\}/)
+        if (vmExecMatch && userId) {
+          try {
+            const signal = JSON.parse(vmExecMatch[0])
+            const command = signal.command || signal.cmd
+            if (command) {
+              controller.enqueue(encoder.encode('\n\n🖥️ Executing in VM...'))
+              try {
+                const vm = await getOrCreateAgentVM(userId)
+                const output = await execInVM(vm.id, userId, command)
+                const result = output.stdout || output.stderr || '(no output)'
+                controller.enqueue(encoder.encode(
+                  `\n\n**VM Output** (${vm.name}):\n\`\`\`\n${result.slice(0, 4000)}\n\`\`\``
+                ))
+              } catch (vmErr) {
+                controller.enqueue(encoder.encode(
+                  `\n\n❌ **VM Error:** ${vmErr.message}\n\nMake sure Docker Desktop is running. [Manage VMs](/vm)`
+                ))
+              }
+            }
+          } catch {}
         }
 
         // Detect walkthrough signal — agent hit a permission wall

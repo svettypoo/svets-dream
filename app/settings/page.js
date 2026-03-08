@@ -104,6 +104,21 @@ export default function SettingsPage() {
           ))}
         </div>
 
+        <div style={{ marginTop: 28, background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>🖥️</span>
+            <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Virtual Machines</span>
+          </div>
+          <p style={{ color: '#64748b', fontSize: 13, margin: '0 0 12px' }}>
+            Agents use Docker containers for safe code execution, testing, and debugging.
+            Requires Docker Desktop installed and running on this machine.
+          </p>
+          <a href="/vm" style={{
+            display: 'inline-block', background: '#6366f1', borderRadius: 8,
+            color: '#fff', padding: '8px 18px', fontSize: 13, fontWeight: 600, textDecoration: 'none',
+          }}>Manage VMs →</a>
+        </div>
+
         <div style={{ marginTop: 24, textAlign: 'center' }}>
           <a href="/billing" style={{ color: '#6366f1', textDecoration: 'none', fontSize: 13 }}>
             💳 Billing & spend limits →
