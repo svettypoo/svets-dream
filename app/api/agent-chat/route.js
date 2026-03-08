@@ -1,9 +1,31 @@
 import { anthropic } from '@/lib/claude'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { checkBudget, recordTransaction } from '@/lib/spend-tracker'
 
 export const runtime = 'nodejs'
 
 export async function POST(req) {
   const { agent, messages, orgContext, rules } = await req.json()
+
+  // Auth + budget check
+  let userId = null
+  try {
+    const supabase = await createServerSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      userId = user.id
+      await checkBudget(userId)
+    }
+  } catch (budgetErr) {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`⛔ **Budget limit reached:** ${budgetErr.message}\n\nUpdate your limit at [Billing Settings](/billing).`))
+        controller.close()
+      }
+    })
+    return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+  }
 
   const rulesText = rules
     ? `\n\nGlobal Rules governing all agents:\n${rules}`
@@ -50,6 +72,19 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
             fullText += event.delta.text
             controller.enqueue(encoder.encode(event.delta.text))
           }
+        }
+
+        // Record transaction
+        const finalMsg = await apiStream.finalMessage()
+        if (userId) {
+          await recordTransaction({
+            userId,
+            model: 'claude-opus-4-6',
+            inputTokens: finalMsg.usage?.input_tokens || 0,
+            outputTokens: finalMsg.usage?.output_tokens || 0,
+            agentName: agent.label,
+            reason: messages[messages.length - 1]?.content?.slice(0, 200) || 'Agent chat',
+          }).catch(() => {})
         }
 
         // Detect walkthrough signal — agent hit a permission wall

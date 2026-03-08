@@ -1,4 +1,6 @@
 import { anthropic } from '@/lib/claude'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { checkBudget, recordTransaction } from '@/lib/spend-tracker'
 
 export const runtime = 'nodejs'
 
@@ -47,6 +49,22 @@ Be creative and helpful — if the user gives a vague description, fill in sensi
 export async function POST(req) {
   const { messages, currentOrg } = await req.json()
 
+  // Auth + budget check (non-blocking — org builder works even without auth)
+  let userId = null
+  try {
+    const supabase = await createServerSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      userId = user.id
+      await checkBudget(userId)
+    }
+  } catch (budgetErr) {
+    return Response.json({
+      message: `⛔ Daily budget reached: ${budgetErr.message}`,
+      org: currentOrg,
+    })
+  }
+
   const userMessages = messages.map(m => ({
     role: m.role,
     content: m.content,
@@ -73,6 +91,18 @@ export async function POST(req) {
         let fullText = ''
         for (const block of response.content) {
           if (block.type === 'text') fullText = block.text
+        }
+
+        // Record transaction
+        if (userId) {
+          await recordTransaction({
+            userId,
+            model: 'claude-opus-4-6',
+            inputTokens: response.usage?.input_tokens || 0,
+            outputTokens: response.usage?.output_tokens || 0,
+            agentName: 'Org Builder',
+            reason: messages[messages.length - 1]?.content?.slice(0, 200) || 'Build org',
+          }).catch(() => {})
         }
 
         let parsed
