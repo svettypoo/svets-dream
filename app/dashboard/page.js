@@ -75,8 +75,14 @@ export default function Dashboard() {
         <a href="/transactions" style={{ fontSize: 12, color: '#94a3b8', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #33333380' }}>
           📊 Transactions
         </a>
+        <a href="/vm" style={{ fontSize: 12, color: '#94a3b8', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #33333380' }}>
+          🖥️ VMs
+        </a>
         <a href="/settings" style={{ fontSize: 12, color: '#94a3b8', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #33333380' }}>
           ⚙️ Settings
+        </a>
+        <a href="/setup" style={{ fontSize: 12, color: '#f59e0b', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #f59e0b30' }}>
+          🚀 Setup
         </a>
         {user && (
           <span style={{ fontSize: 11, color: '#64748b' }}>{user.email}</span>
