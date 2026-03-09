@@ -171,9 +171,12 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [queued, setQueued] = useState([])
   const [currentOrg, setCurrentOrg] = useState(null)
   const [orgReady, setOrgReady] = useState(false)
   const bottomRef = useRef(null)
+  const messagesRef = useRef(messages)
+  useEffect(() => { messagesRef.current = messages }, [messages])
 
   useImperativeHandle(ref, () => ({
     addScreenshotMessage({ screenshot, assessment, passed }) {
@@ -185,12 +188,30 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function send() {
-    if (!input.trim() || loading) return
-    const userMsg = { role: 'user', content: input.trim() }
-    const chatMessages = [...messages.filter(m => !m.isAssessment), userMsg]
-    setMessages(prev => [...prev, userMsg])
+  // Auto-send next queued message when done loading
+  useEffect(() => {
+    if (!loading && queued.length > 0) {
+      const [next, ...rest] = queued
+      setQueued(rest)
+      sendText(next)
+    }
+  }, [loading])
+
+  function send() {
+    if (!input.trim()) return
+    const text = input.trim()
     setInput('')
+    if (loading) {
+      setQueued(prev => [...prev, text])
+    } else {
+      sendText(text)
+    }
+  }
+
+  async function sendText(text) {
+    const userMsg = { role: 'user', content: text }
+    const chatMessages = [...messagesRef.current.filter(m => !m.isAssessment), userMsg]
+    setMessages(prev => [...prev, userMsg])
     setLoading(true)
     dispatchActivity('CTO', 'thinking', 'Reading your message...')
 
@@ -357,7 +378,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
               <textarea
                 value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                placeholder="What do you want to build?" disabled={loading} rows={3}
+                placeholder={loading ? 'CTO is thinking...' : 'What do you want to build?'} rows={3}
                 style={{
                   flex: 1, padding: '10px 12px', borderRadius: 10,
                   border: '1px solid #1e3a5f', outline: 'none', fontSize: 13,
@@ -368,14 +389,14 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 onFocus={e => e.target.style.borderColor = '#6366f1'}
                 onBlur={e => e.target.style.borderColor = '#1e3a5f'}
               />
-              <button onClick={send} disabled={loading || !input.trim()}
+              <button onClick={send} disabled={!input.trim()}
                 style={{
                   padding: '10px 14px', borderRadius: 10, border: 'none',
-                  background: loading || !input.trim() ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-                  color: loading || !input.trim() ? '#334155' : '#fff',
-                  fontWeight: 700, fontSize: 16, cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
+                  background: !input.trim() ? '#1e293b' : loading ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                  color: !input.trim() ? '#334155' : '#fff',
+                  fontWeight: 700, fontSize: 16, cursor: !input.trim() ? 'not-allowed' : 'pointer',
                   alignSelf: 'flex-end', transition: 'all 0.15s',
-                }}>↑</button>
+                }}>{loading ? '⏎' : '↑'}</button>
             </div>
             <div style={{ fontSize: 10, color: '#334155', marginTop: 6, textAlign: 'center' }}>Enter to send · Shift+Enter for new line</div>
           </div>
