@@ -26,11 +26,8 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    if (remember) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ email, password }))
-    } else {
-      localStorage.removeItem(STORAGE_KEY)
-    }
+    if (remember) localStorage.setItem(STORAGE_KEY, JSON.stringify({ email, password }))
+    else localStorage.removeItem(STORAGE_KEY)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { setError(error.message); setLoading(false) }
     else router.push('/dashboard')
