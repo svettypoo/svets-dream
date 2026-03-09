@@ -113,10 +113,18 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
         const execResults = []
 
         // Helper: run a bash command on host
+        const { existsSync } = await import('fs')
+        const BASH = [
+          process.env.SHELL,
+          'C:\\Users\\pargo_pxnd4wa\\scoop\\apps\\git\\current\\bin\\bash.exe',
+          '/bin/bash',
+          'bash',
+        ].find(p => p && (p === 'bash' || existsSync(p))) || 'bash'
+
         async function runBash(command, cwd) {
           return new Promise((resolve, reject) => {
-            const child = spawn('bash', ['-c', command], {
-              cwd: cwd || process.cwd(),
+            const child = spawn(BASH, ['-c', command], {
+              cwd: cwd || process.env.HOME || process.cwd(),
               env: { ...process.env, FORCE_COLOR: '0' },
               timeout: 120000,
               shell: false,
@@ -152,9 +160,12 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
           if (key === '__bash_exec__') {
             const command = signal.command || signal.cmd
             if (!command) continue
+            // Expand ~ in cwd
+            const home = process.env.HOME || process.env.USERPROFILE || process.cwd()
+            const resolvedCwd = signal.cwd ? signal.cwd.replace(/^~/, home) : home
             controller.enqueue(encoder.encode(`\n\n💻 **Running:** \`${command.slice(0, 80)}${command.length > 80 ? '...' : ''}\``))
             try {
-              const output = await runBash(command, signal.cwd)
+              const output = await runBash(command, resolvedCwd)
               const result = [output.stdout, output.stderr].filter(Boolean).join('\n').trim() || '(no output)'
               const resultText = `\n\n**Output** (exit ${output.exitCode}):\n\`\`\`\n${result.slice(0, 3000)}\n\`\`\``
               controller.enqueue(encoder.encode(resultText))
