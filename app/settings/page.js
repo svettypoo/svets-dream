@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
+import { ORG_PRESETS, DEFAULT_PRESET_ID } from '@/lib/org-presets'
 
 const SERVICES = [
   { key: 'anthropic', label: 'Anthropic (Claude)', icon: '🤖', placeholder: 'sk-ant-api03-...' },
@@ -18,6 +19,7 @@ export default function SettingsPage() {
   const [inputs, setInputs] = useState({})
   const [saving, setSaving] = useState(null)
   const [msg, setMsg] = useState('')
+  const [selectedPreset, setSelectedPreset] = useState(DEFAULT_PRESET_ID)
 
   useEffect(() => {
     const supabase = createClient()
@@ -27,7 +29,16 @@ export default function SettingsPage() {
     fetch('/api/settings/keys').then(r => r.json()).then(d => {
       setKeys(d.keys || {})
     })
+    const saved = localStorage.getItem('sd_default_org_preset')
+    if (saved) setSelectedPreset(saved)
   }, [router])
+
+  function selectPreset(id) {
+    setSelectedPreset(id)
+    localStorage.setItem('sd_default_org_preset', id)
+    setMsg('Default org updated. New projects will use this preset.')
+    setTimeout(() => setMsg(''), 3000)
+  }
 
   async function saveKey(service) {
     const value = inputs[service]?.trim()
@@ -102,6 +113,43 @@ export default function SettingsPage() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Org Preset Selector */}
+        <div style={{ marginTop: 28, background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 18 }}>🏢</span>
+            <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Default Org Structure</span>
+          </div>
+          <p style={{ color: '#64748b', fontSize: 13, margin: '0 0 14px' }}>
+            Choose the agent team that auto-loads for every new project.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {ORG_PRESETS.map(preset => (
+              <button
+                key={preset.id}
+                onClick={() => selectPreset(preset.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  background: selectedPreset === preset.id ? 'rgba(99,102,241,0.15)' : 'rgba(15,23,42,0.6)',
+                  border: `1px solid ${selectedPreset === preset.id ? '#6366f1' : '#334155'}`,
+                  borderRadius: 8, padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <span style={{ fontSize: 22, flexShrink: 0 }}>{preset.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: selectedPreset === preset.id ? '#a5b4fc' : '#e2e8f0', fontSize: 13, fontWeight: 600 }}>
+                    {preset.label}
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>{preset.description}</div>
+                </div>
+                {selectedPreset === preset.id && (
+                  <span style={{ fontSize: 11, color: '#22c55e', background: '#22c55e15', padding: '2px 8px', borderRadius: 10, flexShrink: 0 }}>✓ Active</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div style={{ marginTop: 28, background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155' }}>
