@@ -122,6 +122,7 @@ export default function Dashboard() {
   const [user, setUser] = useState(null)
   const [introNodeIds, setIntroNodeIds] = useState(new Set())
   const [agentChats, setAgentChats] = useState({}) // nodeId → message string
+  const [activeAgents, setActiveAgents] = useState(new Set())
   const revealTimersRef = useRef([])
   const chartRef = useRef(null)
   const chatRef = useRef(null)
@@ -147,6 +148,22 @@ export default function Dashboard() {
     window.addEventListener('builderUpdate', onBuild)
     return () => window.removeEventListener('builderUpdate', onBuild)
   }, [activeTabId])
+
+  // Track which agents are actively working (spinning gear)
+  useEffect(() => {
+    function onAgentStatus(e) {
+      const { agentId, active } = e.detail || {}
+      if (!agentId) return
+      setActiveAgents(prev => {
+        const next = new Set(prev)
+        if (active) next.add(agentId)
+        else next.delete(agentId)
+        return next
+      })
+    }
+    window.addEventListener('agentStatus', onAgentStatus)
+    return () => window.removeEventListener('agentStatus', onAgentStatus)
+  }, [])
 
   function updateTab(id, updates) {
     setTabs(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
@@ -352,7 +369,7 @@ export default function Dashboard() {
               <span style={{ marginLeft: 'auto', fontSize: 11, color: '#a78bfa', background: '#a78bfa15', padding: '3px 10px', borderRadius: 20, fontWeight: 600 }}>Live</span>
             )}
           </div>
-          <OrgChart ref={chartRef} orgData={activeTab?.orgData} onNodeClick={setSelectedAgent} introNodeIds={introNodeIds} agentChats={agentChats} />
+          <OrgChart ref={chartRef} orgData={activeTab?.orgData} onNodeClick={setSelectedAgent} introNodeIds={introNodeIds} agentChats={agentChats} activeAgents={activeAgents} />
         </div>
 
         {/* Build Preview — always visible */}

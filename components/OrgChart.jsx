@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'rea
 import {
   ReactFlow, Background, Controls, MiniMap,
   useNodesState, useEdgesState, MarkerType,
-  ReactFlowProvider,
+  ReactFlowProvider, useReactFlow,
 } from '@xyflow/react'
 import { toPng } from 'html-to-image'
 import '@xyflow/react/dist/style.css'
@@ -67,6 +67,7 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const containerRef = useRef(null)
+  const { fitView } = useReactFlow()
 
   // Stable key for activeAgents set — only triggers re-render when the set contents change
   const activeAgentsKey = useMemo(() => [...activeAgents].sort().join(','), [activeAgents])
@@ -97,6 +98,10 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
     }))
     setNodes(withClick)
     setEdges(edged)
+    // Refit after nodes render — double rAF ensures DOM has updated
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fitView({ padding: 0.28, maxZoom: 0.78 })
+    }))
   }, [orgData, introNodeIds, agentChats]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Separately update isActive without re-running full layout
@@ -146,7 +151,7 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
   return (
     <div ref={containerRef} style={{ flex: 1, height: '100%' }}>
       <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.3} maxZoom={2}>
+        nodeTypes={nodeTypes} minZoom={0.2} maxZoom={2} defaultViewport={{ x: 0, y: 0, zoom: 0.7 }}>
         <Background color="#0f172a" gap={24} size={1} />
         <Controls style={{ background: '#0d1526', border: '1px solid #1e293b' }} />
         <MiniMap nodeColor={n => n.data?.nodeType === 'rules' ? '#334155' : '#6366f1'}

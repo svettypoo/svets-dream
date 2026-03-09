@@ -2,11 +2,127 @@
 import { useState, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 
+const AVATAR_BASE = 'https://api.dicebear.com/9.x/avataaars/svg'
+
+function agentAvatar(label) {
+  return `${AVATAR_BASE}?seed=${encodeURIComponent(label)}&backgroundColor=0ea5e9,38bdf8,6366f1&backgroundType=gradientLinear`
+}
+
+// Formats description text — newline-separated lines become bullets
+function ResumeDescription({ text }) {
+  if (!text) return null
+  const lines = text.split('\n').map(l => l.replace(/^[-•]\s*/, '').trim()).filter(Boolean)
+  if (lines.length <= 1) {
+    return <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.7, margin: 0 }}>{text}</p>
+  }
+  return (
+    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {lines.map((line, i) => (
+        <li key={i} style={{ display: 'flex', gap: 8, fontSize: 13, color: '#94a3b8', lineHeight: 1.6 }}>
+          <span style={{ color: '#6366f1', flexShrink: 0, marginTop: 1 }}>▸</span>
+          <span>{line}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function AgentResume({ agent, orgData, onStartChat }) {
+  const avatarUrl = agentAvatar(agent.label)
+  // Find who they report to
+  const parents = (agent.parentIds?.length ? agent.parentIds : (agent.parentId ? [agent.parentId] : []))
+    .map(pid => orgData?.nodes?.find(n => n.id === pid)?.label)
+    .filter(Boolean)
+  // Find their direct reports
+  const reports = (orgData?.nodes || [])
+    .filter(n => n.id !== 'rules' && (n.parentIds?.includes(agent.id) || n.parentId === agent.id))
+    .map(n => n.label)
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '24px 24px 20px', scrollbarWidth: 'none' }}>
+      {/* Avatar + name */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+        <img
+          src={avatarUrl}
+          alt={agent.label}
+          style={{
+            width: 72, height: 72, borderRadius: '50%',
+            border: '2px solid #0EA5E9',
+            background: '#fff', flexShrink: 0,
+          }}
+        />
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.4px' }}>{agent.label}</div>
+          <div style={{
+            display: 'inline-block', marginTop: 4,
+            fontSize: 11, fontWeight: 700, color: '#0EA5E9',
+            background: 'rgba(14,165,233,0.12)', border: '1px solid rgba(14,165,233,0.25)',
+            borderRadius: 20, padding: '2px 10px', letterSpacing: '0.05em', textTransform: 'uppercase',
+          }}>
+            {agent.role}
+          </div>
+        </div>
+      </div>
+
+      {/* Reporting lines */}
+      {(parents.length > 0 || reports.length > 0) && (
+        <div style={{
+          display: 'flex', gap: 16, marginBottom: 20,
+          padding: '12px 14px', background: 'rgba(99,102,241,0.07)',
+          borderRadius: 10, border: '1px solid rgba(99,102,241,0.15)',
+        }}>
+          {parents.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Reports to</div>
+              <div style={{ fontSize: 12, color: '#a78bfa', fontWeight: 600 }}>{parents.join(' & ')}</div>
+            </div>
+          )}
+          {parents.length > 0 && reports.length > 0 && (
+            <div style={{ width: 1, background: '#1e293b', flexShrink: 0 }} />
+          )}
+          {reports.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Manages</div>
+              <div style={{ fontSize: 12, color: '#38bdf8', fontWeight: 600 }}>{reports.join(', ')}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Description */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          Responsibilities
+        </div>
+        <ResumeDescription text={agent.description} />
+      </div>
+
+      {/* Chat CTA */}
+      <button
+        onClick={onStartChat}
+        style={{
+          width: '100%', padding: '12px 20px', borderRadius: 10,
+          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+          border: 'none', color: '#fff', fontWeight: 700, fontSize: 14,
+          cursor: 'pointer', letterSpacing: '-0.2px',
+          boxShadow: '0 4px 20px rgba(99,102,241,0.35)',
+          transition: 'opacity 0.15s',
+        }}
+        onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+        onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+      >
+        Chat with {agent.label} →
+      </button>
+    </div>
+  )
+}
+
 export default function AgentModal({ agent, orgData, rulesDescription, onClose }) {
+  const [view, setView] = useState('resume') // 'resume' | 'chat'
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [queued, setQueued] = useState([]) // messages queued while AI is responding
+  const [queued, setQueued] = useState([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const bottomRef = useRef(null)
   const abortRef = useRef(null)
@@ -24,7 +140,11 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
         .eq('agent_id', agentId)
         .eq('user_id', user.id)
         .maybeSingle()
-      if (data?.messages?.length) setMessages(data.messages)
+      if (data?.messages?.length) {
+        setMessages(data.messages)
+        // If they have history, go straight to chat
+        setView('chat')
+      }
       setHistoryLoaded(true)
     }
     loadHistory()
@@ -34,7 +154,6 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto-send next queued message when AI finishes
   useEffect(() => {
     if (!loading && queued.length > 0) {
       const [next, ...rest] = queued
@@ -42,6 +161,10 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
       sendMessage(next)
     }
   }, [loading])
+
+  function emitStatus(active) {
+    window.dispatchEvent(new CustomEvent('agentStatus', { detail: { agentId: agent.id || agent.label, active } }))
+  }
 
   async function saveHistory(msgs) {
     const { data: { user } } = await supabase.auth.getUser()
@@ -57,7 +180,6 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     }, { onConflict: 'user_id,agent_id' })
   }
 
-  // Render message content: splits on ![alt](url) to show inline images
   function renderContent(text) {
     if (!text) return null
     const parts = []
@@ -84,24 +206,18 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type, data } }))
   }
 
-  // Parse commands, outputs, files, and URLs from accumulated stream text.
-  // Returns newly found events since lastIdx, and the new lastIdx.
   function parseBuilderEventsFrom(text, lastIdx) {
     const slice = text.slice(lastIdx)
     const events = []
     let newIdx = lastIdx
 
-    // Command: 💻 **Running:** `cmd`
     const cmdRe = /💻 \*\*Running:\*\* `([^`\n]{1,300})`/g
     let m
     while ((m = cmdRe.exec(slice)) !== null) {
       const absEnd = lastIdx + m.index + m[0].length
-      if (absEnd > lastIdx) {
-        events.push({ type: 'command', data: { command: m[1] }, absEnd })
-      }
+      if (absEnd > lastIdx) events.push({ type: 'command', data: { command: m[1] }, absEnd })
     }
 
-    // Output block: **Output** (exit N):\n```\n...\n```
     const outRe = /\*\*(?:Host )?(?:VM )?Output\*\*(?:[^\n]*\(exit (\d+)\))?[^\n]*\n```[^\n]*\n([\s\S]*?)```/g
     while ((m = outRe.exec(slice)) !== null) {
       const absEnd = lastIdx + m.index + m[0].length
@@ -109,16 +225,11 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
         const exitCode = m[1] !== undefined ? parseInt(m[1]) : 0
         const output = m[2].trimEnd()
         events.push({ type: 'output', data: { exitCode, output }, absEnd })
-
-        // URL detection in output
         const urlMatch = output.match(/https?:\/\/localhost:\d+|http:\/\/127\.0\.0\.1:\d+/)
-        if (urlMatch) {
-          events.push({ type: 'url', data: { url: urlMatch[0] }, absEnd })
-        }
+        if (urlMatch) events.push({ type: 'url', data: { url: urlMatch[0] }, absEnd })
       }
     }
 
-    // File detection from bash heredoc: cat > path << or tee path
     const fileRe = /(?:cat\s*>\s*([^\s<'"]+)|tee\s+([^\s'"]+))\s*<<[^']*'?EOF'?\s*\n([\s\S]*?)\nEOF/g
     while ((m = fileRe.exec(slice)) !== null) {
       const absEnd = lastIdx + m.index + m[0].length
@@ -128,12 +239,8 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
       }
     }
 
-    // Sort by position so events are emitted in order
     events.sort((a, b) => a.absEnd - b.absEnd)
-
-    // Update newIdx to furthest event seen
     if (events.length > 0) newIdx = events[events.length - 1].absEnd
-
     return { events, newIdx }
   }
 
@@ -144,6 +251,7 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     }
     setLoading(false)
     setQueued([])
+    emitStatus(false)
     emit('observe', 'Response stopped by user')
     setMessages(prev => {
       const last = prev[prev.length - 1]
@@ -156,10 +264,11 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
 
   async function sendMessage(text) {
     const userMsg = { role: 'user', content: text }
-    const newMessages = [...messages.filter((_, i) => true), userMsg]
+    const newMessages = [...messages, userMsg]
     setMessages(prev => [...prev, userMsg])
     emit('sent', text.slice(0, 80))
     setLoading(true)
+    emitStatus(true)
     emit('thinking', `${agent.label} is thinking...`)
 
     const controller = new AbortController()
@@ -191,12 +300,9 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
         const chunk = decoder.decode(value, { stream: true })
         assistantText += chunk
 
-        // Dispatch builder events as they arrive
         const { events, newIdx } = parseBuilderEventsFrom(assistantText, builderParsedIdx)
         builderParsedIdx = newIdx
-        for (const evt of events) {
-          emitBuild(evt.type, evt.data)
-        }
+        for (const evt of events) emitBuild(evt.type, evt.data)
 
         if (chunk.includes('💻 **Running:**')) {
           const cmd = chunk.match(/`([^`]+)`/)
@@ -218,10 +324,11 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
       }
 
       emit('complete', `${agent.label} finished responding`)
-      // Save completed conversation
+      emitStatus(false)
       const finalMsgs = [...newMessages, { role: 'assistant', content: assistantText }]
       saveHistory(finalMsgs).catch(() => {})
     } catch (err) {
+      emitStatus(false)
       if (err.name !== 'AbortError') {
         setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
         emit('error', err.message)
@@ -237,7 +344,6 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     const text = input.trim()
     setInput('')
     if (loading) {
-      // Queue it — will auto-send when current response finishes
       setQueued(prev => [...prev, text])
       emit('observe', `Message queued: ${text.slice(0, 40)}...`)
     } else {
@@ -254,141 +360,149 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{
         background: '#080f20',
-        borderRadius: 16, width: '100%', maxWidth: 620,
-        height: '80vh', display: 'flex', flexDirection: 'column',
+        borderRadius: 16, width: '100%', maxWidth: 580,
+        height: view === 'resume' ? 'auto' : '80vh',
+        maxHeight: '85vh',
+        display: 'flex', flexDirection: 'column',
         boxShadow: '0 24px 80px rgba(99,102,241,0.25)',
         border: '1px solid #1e293b', overflow: 'hidden',
+        transition: 'height 0.25s ease',
       }}>
         {/* Header */}
         <div style={{
-          padding: '14px 18px', borderBottom: '1px solid #1e293b',
-          background: 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', gap: 12,
+          padding: '12px 16px', borderBottom: '1px solid #1e293b',
+          background: 'rgba(99,102,241,0.08)',
+          display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #6366f1, #a78bfa)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontWeight: 700, fontSize: 15,
-          }}>
-            {agent.label?.[0]}
+          {view === 'chat' && (
+            <button onClick={() => setView('resume')} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#475569', fontSize: 18, padding: '0 4px', lineHeight: 1,
+            }} title="Back to profile">←</button>
+          )}
+          <div style={{ fontSize: 12, fontWeight: 600, color: view === 'chat' ? '#e2e8f0' : '#6366f1' }}>
+            {view === 'resume' ? 'Agent Profile' : agent.label}
           </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>{agent.label}</div>
-            <div style={{ fontSize: 11, color: '#475569' }}>{agent.role}</div>
-          </div>
-          {loading && (
-            <div style={{ marginLeft: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1s ease-in-out infinite' }} />
-              <span style={{ fontSize: 11, color: '#6366f1' }}>thinking</span>
+          {view === 'chat' && loading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1s ease-in-out infinite' }} />
+              <span style={{ fontSize: 10, color: '#6366f1' }}>thinking</span>
             </div>
           )}
-          {queued.length > 0 && (
+          {view === 'chat' && queued.length > 0 && (
             <div style={{ fontSize: 10, color: '#475569', background: 'rgba(99,102,241,0.1)', padding: '2px 8px', borderRadius: 10 }}>
               {queued.length} queued
             </div>
           )}
-          <button onClick={async () => {
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) return
-            const agentId = agent.id || agent.label
-            await supabase.from('agent_conversations').delete()
-              .eq('user_id', user.id).eq('agent_id', agentId)
-            setMessages([])
-          }} title="Clear history" style={{
-            marginLeft: 'auto', background: 'none', border: 'none',
-            cursor: 'pointer', fontSize: 11, color: '#475569', padding: '4px 8px',
-            borderRadius: 6, transition: 'color 0.15s',
-          }} onMouseOver={e => e.target.style.color='#f87171'} onMouseOut={e => e.target.style.color='#475569'}>
-            Clear
-          </button>
+          {view === 'chat' && (
+            <button onClick={async () => {
+              const { data: { user } } = await supabase.auth.getUser()
+              if (!user) return
+              const agentId = agent.id || agent.label
+              await supabase.from('agent_conversations').delete()
+                .eq('user_id', user.id).eq('agent_id', agentId)
+              setMessages([])
+            }} title="Clear history" style={{
+              marginLeft: 'auto', background: 'none', border: 'none',
+              cursor: 'pointer', fontSize: 11, color: '#475569', padding: '4px 8px',
+              borderRadius: 6,
+            }} onMouseOver={e => e.target.style.color='#f87171'} onMouseOut={e => e.target.style.color='#475569'}>
+              Clear
+            </button>
+          )}
           <button onClick={onClose} style={{
-            background: 'none', border: 'none',
+            background: 'none', border: 'none', marginLeft: view === 'chat' ? 0 : 'auto',
             cursor: 'pointer', fontSize: 18, color: '#334155', padding: 4,
           }}>×</button>
         </div>
 
-        {/* Messages */}
-        <div style={{
-          flex: 1, overflowY: 'auto', padding: '14px 18px',
-          display: 'flex', flexDirection: 'column', gap: 10,
-          scrollbarWidth: 'none',
-        }}>
-          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-          {!historyLoaded && (
-            <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 12, opacity: 0.5 }}>
-              Loading history...
-            </div>
-          )}
-          {historyLoaded && messages.length === 0 && (
-            <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 13, lineHeight: 1.6 }}>
-              <div style={{ fontSize: 28, marginBottom: 10, opacity: 0.5 }}>◈</div>
-              <div style={{ fontWeight: 600, color: '#475569' }}>Talk to {agent.label}</div>
-              <div style={{ marginTop: 6, fontSize: 12, maxWidth: 320, margin: '8px auto 0' }}>{agent.description}</div>
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div style={{
-                maxWidth: '87%', padding: '9px 13px', borderRadius: 10,
-                fontSize: 13, lineHeight: 1.65,
-                background: m.role === 'user'
-                  ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
-                  : 'rgba(255,255,255,0.04)',
-                color: m.role === 'user' ? '#fff' : '#cbd5e1',
-                border: m.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.07)',
-                borderBottomRightRadius: m.role === 'user' ? 2 : 10,
-                borderBottomLeftRadius: m.role === 'assistant' ? 2 : 10,
-              }}>
-                {m.content
-                  ? renderContent(m.content)
-                  : (loading && i === messages.length - 1 ? <span style={{ opacity: 0.4 }}>▋</span> : '')
-                }
-              </div>
-            </div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Input */}
-        <div style={{ padding: '10px 14px', borderTop: '1px solid #1e293b', background: '#070d1c', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-            placeholder={loading ? `Message ${agent.label} (will queue)...` : `Message ${agent.label}...`}
-            style={{
-              flex: 1, padding: '10px 14px', borderRadius: 10,
-              border: '1px solid #1e293b', outline: 'none',
-              fontSize: 13, background: '#0d1526', color: '#e2e8f0',
-              transition: 'border-color 0.15s',
-            }}
-            onFocus={e => e.target.style.borderColor = '#6366f1'}
-            onBlur={e => e.target.style.borderColor = '#1e293b'}
-          />
-          {loading && (
-            <button onClick={stop} style={{
-              padding: '10px 14px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.3)',
-              background: 'rgba(239,68,68,0.1)', color: '#f87171',
-              fontWeight: 600, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap',
+        {view === 'resume' ? (
+          <AgentResume agent={agent} orgData={orgData} onStartChat={() => setView('chat')} />
+        ) : (
+          <>
+            {/* Messages */}
+            <div style={{
+              flex: 1, overflowY: 'auto', padding: '14px 18px',
+              display: 'flex', flexDirection: 'column', gap: 10,
+              scrollbarWidth: 'none',
             }}>
-              ■ Stop
-            </button>
-          )}
-          <button
-            onClick={send}
-            disabled={!input.trim()}
-            style={{
-              padding: '10px 16px', borderRadius: 10, border: 'none',
-              background: !input.trim() ? '#1e293b' : loading ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              color: !input.trim() ? '#334155' : '#fff',
-              fontWeight: 600, fontSize: 13,
-              cursor: !input.trim() ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            {loading ? '↑ Queue' : 'Send'}
-          </button>
-        </div>
+              <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+              {!historyLoaded && (
+                <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 12, opacity: 0.5 }}>Loading history...</div>
+              )}
+              {historyLoaded && messages.length === 0 && (
+                <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 13, lineHeight: 1.6 }}>
+                  <div style={{ fontSize: 28, marginBottom: 10, opacity: 0.5 }}>◈</div>
+                  <div style={{ fontWeight: 600, color: '#475569' }}>Talk to {agent.label}</div>
+                  <div style={{ marginTop: 6, fontSize: 12, maxWidth: 320, margin: '8px auto 0', color: '#334155' }}>{agent.role}</div>
+                </div>
+              )}
+              {messages.map((m, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth: '87%', padding: '9px 13px', borderRadius: 10,
+                    fontSize: 13, lineHeight: 1.65,
+                    background: m.role === 'user'
+                      ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+                      : 'rgba(255,255,255,0.04)',
+                    color: m.role === 'user' ? '#fff' : '#cbd5e1',
+                    border: m.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                    borderBottomRightRadius: m.role === 'user' ? 2 : 10,
+                    borderBottomLeftRadius: m.role === 'assistant' ? 2 : 10,
+                  }}>
+                    {m.content
+                      ? renderContent(m.content)
+                      : (loading && i === messages.length - 1 ? <span style={{ opacity: 0.4 }}>▋</span> : '')
+                    }
+                  </div>
+                </div>
+              ))}
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Input */}
+            <div style={{ padding: '10px 14px', borderTop: '1px solid #1e293b', background: '#070d1c', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+              <input
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+                placeholder={loading ? `Message ${agent.label} (will queue)...` : `Message ${agent.label}...`}
+                style={{
+                  flex: 1, padding: '10px 14px', borderRadius: 10,
+                  border: '1px solid #1e293b', outline: 'none',
+                  fontSize: 13, background: '#0d1526', color: '#e2e8f0',
+                  transition: 'border-color 0.15s',
+                }}
+                onFocus={e => e.target.style.borderColor = '#6366f1'}
+                onBlur={e => e.target.style.borderColor = '#1e293b'}
+                autoFocus
+              />
+              {loading && (
+                <button onClick={stop} style={{
+                  padding: '10px 14px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.3)',
+                  background: 'rgba(239,68,68,0.1)', color: '#f87171',
+                  fontWeight: 600, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>
+                  ■ Stop
+                </button>
+              )}
+              <button
+                onClick={send}
+                disabled={!input.trim()}
+                style={{
+                  padding: '10px 16px', borderRadius: 10, border: 'none',
+                  background: !input.trim() ? '#1e293b' : loading ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  color: !input.trim() ? '#334155' : '#fff',
+                  fontWeight: 600, fontSize: 13,
+                  cursor: !input.trim() ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {loading ? '↑ Queue' : 'Send'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
