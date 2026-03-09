@@ -405,16 +405,19 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
         for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
           if (iter > 0) send('\n\n---\n\n')
 
-          // Force top agents (CTO etc.) to always call a tool on the first turn
-          // so they always check VISION.md before responding with text
-          const toolChoice = (isTopAgent && iter === 0)
-            ? { type: 'any' }
-            : { type: 'auto' }
+          // NOTE: Anthropic API does not allow thinking + tool_choice:any/required together.
+          // On first turn for top agents we force a tool call (any) — so thinking must be off.
+          // All subsequent turns use auto tool_choice so thinking can be on.
+          const forceToolCall = isTopAgent && iter === 0
+          const toolChoice = forceToolCall ? { type: 'any' } : { type: 'auto' }
+          const thinkingConfig = forceToolCall
+            ? { type: 'disabled' }
+            : { type: 'enabled', budget_tokens: 8000 }
 
           const apiStream = anthropic.messages.stream({
             model: 'claude-opus-4-6',
             max_tokens: 16000,
-            thinking: { type: 'enabled', budget_tokens: 8000 },
+            thinking: thinkingConfig,
             tools,
             tool_choice: toolChoice,
             system: systemPrompt,
@@ -468,7 +471,9 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
 
         controller.close()
       } catch (err) {
-        send(`\n[Error: ${err.message}]`)
+        // Log server-side but never expose raw API errors to the user
+        console.error(`[agent-chat] ${agent.label} error:`, err.message)
+        // Silently close — partial response already streamed is enough context
         controller.close()
       }
     },
