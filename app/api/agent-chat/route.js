@@ -55,7 +55,9 @@ These tools are installed and ready. Use them directly — no setup needed.
 • Browser Automation (Playwright)
   - Use __playwright__ signal to launch a browser, click, fill forms, take screenshots
   - Returns screenshots and DOM snapshots automatically
-  - If you are the UI Agent: screenshot the live app, then screenshot top competitor products (Notion, Linear, Asana, Figma, etc.), compare them side by side, document specific improvements with visual evidence, and send actionable instructions to the Backend Programmer
+  - If you are the CTO or UI Agent: screenshot the live app AND competitor products (Linear, Notion, Asana, Height, Jira, Figma, etc.) to show side-by-side comparisons when proposing features
+  - Screenshots render as inline images in the chat — label them clearly: description: "Linear kanban board", "Our current board", "Notion database view" etc.
+  - When proposing a feature to the user, ALWAYS include a screenshot of how the best competitor does it
 
 • File System
   - Write files with heredoc: cat > path/to/file.js << 'EOF' ... EOF
@@ -303,9 +305,15 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
                   send(`\n\n❌ **Browser Error:** ${result.error}`)
                   commandOutputSummary += `\n\n**Browser Error:** ${result.error}`
                 } else {
-                  send(`\n\n**Browser Result:**\n\`\`\`\n${result.output}\n\`\`\``)
-                  commandOutputSummary += `\n\n**Browser Result:**\n\`\`\`\n${result.output}\n\`\`\``
-                  if (result.screenshotUrl) send(`\n\n📸 **Screenshot:** ${result.screenshotUrl}`)
+                  const browserOutput = result.output && result.output !== '(completed with no output)'
+                    ? `\n\n**Browser Result:**\n\`\`\`\n${result.output}\n\`\`\`` : ''
+                  if (browserOutput) send(browserOutput)
+                  if (result.screenshotUrl) {
+                    const imgLabel = signal.description || 'screenshot'
+                    send(`\n\n![${imgLabel}](${result.screenshotUrl})`)
+                    commandOutputSummary += `\n\n![${imgLabel}](${result.screenshotUrl})`
+                  }
+                  commandOutputSummary += browserOutput
                 }
               } catch (err) {
                 send(`\n\n❌ **Playwright Error:** ${err.message}`)

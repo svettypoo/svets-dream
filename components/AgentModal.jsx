@@ -57,6 +57,25 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     }, { onConflict: 'user_id,agent_id' })
   }
 
+  // Render message content: splits on ![alt](url) to show inline images
+  function renderContent(text) {
+    if (!text) return null
+    const parts = []
+    const imgRe = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g
+    let last = 0, m
+    while ((m = imgRe.exec(text)) !== null) {
+      if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) })
+      parts.push({ type: 'img', alt: m[1], src: m[2] })
+      last = m.index + m[0].length
+    }
+    if (last < text.length) parts.push({ type: 'text', value: text.slice(last) })
+    return parts.map((p, i) => p.type === 'img'
+      ? <img key={i} src={p.src} alt={p.alt || 'screenshot'}
+          style={{ maxWidth: '100%', borderRadius: 8, marginTop: 8, display: 'block', border: '1px solid rgba(255,255,255,0.1)' }} />
+      : <span key={i} style={{ whiteSpace: 'pre-wrap' }}>{p.value}</span>
+    )
+  }
+
   function emit(type, text) {
     window.dispatchEvent(new CustomEvent('agentActivity', { detail: { agent: agent.label, type, text } }))
   }
@@ -311,7 +330,7 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
             <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
               <div style={{
                 maxWidth: '87%', padding: '9px 13px', borderRadius: 10,
-                fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap',
+                fontSize: 13, lineHeight: 1.65,
                 background: m.role === 'user'
                   ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
                   : 'rgba(255,255,255,0.04)',
@@ -319,12 +338,11 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
                 border: m.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.07)',
                 borderBottomRightRadius: m.role === 'user' ? 2 : 10,
                 borderBottomLeftRadius: m.role === 'assistant' ? 2 : 10,
-                fontFamily: m.content?.includes('```') ? 'inherit' : 'inherit',
               }}>
-                {m.content || (loading && i === messages.length - 1
-                  ? <span style={{ opacity: 0.4 }}>▋</span>
-                  : ''
-                )}
+                {m.content
+                  ? renderContent(m.content)
+                  : (loading && i === messages.length - 1 ? <span style={{ opacity: 0.4 }}>▋</span> : '')
+                }
               </div>
             </div>
           ))}
