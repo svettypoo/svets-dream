@@ -293,7 +293,7 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
         for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
           const apiStream = anthropic.messages.stream({
             model: 'claude-opus-4-6',
-            max_tokens: 8192,
+            max_tokens: 32000,
             thinking: { type: 'adaptive' },
             system: systemPrompt,
             messages: loopMessages,
@@ -413,11 +413,30 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
               }
 
               const taskText = signal.task || signal.message || ''
-              send(`\n\n${'─'.repeat(50)}\n🤝 **CTO → ${targetAgent.label}** (${targetAgent.role})\n${taskText.slice(0, 200)}${taskText.length > 200 ? '...' : ''}\n${'─'.repeat(50)}\n\n`)
+              send(`\n\n${'─'.repeat(50)}\n🤝 **${agent.label} → ${targetAgent.label}** (${targetAgent.role})\n${taskText.slice(0, 200)}${taskText.length > 200 ? '...' : ''}\n${'─'.repeat(50)}\n\n`)
 
-              // Dispatch agentStatus event hint (the UI listens for this via SSE or window events)
-              // We signal via a special marker that the client can parse
               send(`\n<!--agent-active:${targetAgent.id}-->\n`)
+
+              // Auto-inject shared project files so sub-agent has full context
+              let sharedContext = ''
+              try {
+                const filesToInject = [
+                  { cmd: `cat ~/*/VISION.md 2>/dev/null | head -200`, label: 'VISION DOCUMENT' },
+                  { cmd: `cat ~/*/BENCHMARK.md 2>/dev/null | head -100`, label: 'BENCHMARK' },
+                  { cmd: `ls ~/*/  2>/dev/null | head -40`, label: 'PROJECT FILES' },
+                ]
+                for (const { cmd, label } of filesToInject) {
+                  const result = await runBash(cmd, home)
+                  const out = result.stdout.trim()
+                  if (out && out.length > 10) {
+                    sharedContext += `\n\n=== ${label} ===\n${out.slice(0, 6000)}`
+                  }
+                }
+              } catch {}
+
+              const enrichedTask = sharedContext
+                ? `${taskText}\n\n--- SHARED PROJECT CONTEXT (read before starting) ---${sharedContext}`
+                : taskText
 
               let subAgentOutput = ''
               try {
@@ -426,7 +445,7 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
                   headers: { 'Content-Type': 'application/json', Cookie: cookie },
                   body: JSON.stringify({
                     agent: targetAgent,
-                    messages: [{ role: 'user', content: taskText }],
+                    messages: [{ role: 'user', content: enrichedTask }],
                     orgContext,
                     rules,
                     _delegationDepth: _delegationDepth + 1,
