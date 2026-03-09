@@ -353,6 +353,18 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
             if (key === '__bash_exec__') {
               const command = signal.command || signal.cmd
               if (!command) continue
+
+              // CTO must not run implementation commands — only read-only file ops allowed
+              if (isCTO) {
+                const trimmed = command.trim()
+                const isReadOnly = /^(ls|cat|find|head|tail|echo|pwd|grep|wc|stat)\b/.test(trimmed)
+                if (!isReadOnly) {
+                  send(`\n\n⛔ **CTO cannot run commands directly.** Assign this to a team member:\n\n\`\`\`\nBlocked command: ${command.slice(0, 120)}\n\`\`\`\n\nUse __delegate__ to give this task to the right agent on your team.`)
+                  commandOutputSummary += `\n\nSYSTEM: CTO tried to run bash directly. Command blocked: \`${command}\`. You MUST use __delegate__ to assign this work. Do not run commands yourself — you are the CTO, not the implementer.`
+                  continue
+                }
+              }
+
               const resolvedCwd = signal.cwd ? signal.cwd.replace(/^~/, home) : home
               send(`\n\n💻 **Running:** \`${command.slice(0, 100)}${command.length > 100 ? '...' : ''}\``)
               try {
@@ -369,6 +381,11 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
             } else if (key === '__vm_exec__' && userId) {
               const command = signal.command || signal.cmd
               if (!command) continue
+              if (isCTO) {
+                send(`\n\n⛔ **CTO cannot run VM commands directly.** Delegate this to the right team member using __delegate__.`)
+                commandOutputSummary += `\n\nSYSTEM: CTO tried to use VM directly. Blocked. Use __delegate__ to assign this work to a team member.`
+                continue
+              }
               send(`\n\n🖥️ **VM:** \`${command.slice(0, 80)}\``)
               try {
                 const vm = await getOrCreateAgentVM(userId)
