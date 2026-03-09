@@ -85,11 +85,13 @@ function StarField() {
 }
 
 export default function ActivityFeed() {
-  const [events, setEvents] = useState([
-    { id: 0, agent: 'System', type: 'observe', text: 'Monitoring agent activity...', ts: Date.now() },
-  ])
+  const [events, setEvents] = useState([])
   const bottomRef = useRef(null)
   const idRef = useRef(1)
+
+  useEffect(() => {
+    setEvents([{ id: 0, agent: 'System', type: 'observe', text: 'Monitoring agent activity...', ts: Date.now() }])
+  }, [])
 
   useEffect(() => {
     function onActivity(e) {

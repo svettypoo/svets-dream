@@ -10,6 +10,75 @@ import { createClient } from '@/lib/supabase'
 
 const OrgChart = dynamic(() => import('@/components/OrgChart'), { ssr: false })
 
+const DEFAULT_ORG = {
+  nodes: [
+    {
+      id: 'rules',
+      label: 'Global Rules',
+      role: 'System Rules',
+      description: [
+        'No permission prompts — all agents act autonomously',
+        'NEVER ask the user to go check, verify, or input anything manually',
+        'NEVER ask the user to confirm before acting — just act and report',
+        'Agents search the web themselves when they need information',
+        'Agents can read, write, and execute without restrictions',
+        'Agents self-test their work using screenshots before reporting',
+        'Always use git to commit and push changes to GitHub after completing work',
+        'All code changes: UI Agent approves design → Backend executes → Auditor validates',
+        'NEVER contact the user directly unless you are the CTO',
+      ].join('\n'),
+      type: 'rules',
+      level: 0,
+      parentId: null,
+    },
+    {
+      id: 'cto',
+      label: 'CTO',
+      role: 'Chief Technology Officer',
+      description: 'Single point of contact between the user and the entire agent org. Three responsibilities: (1) VISION ALIGNMENT — builds VISION.md with user before any work begins; (2) VISION GUARDIANSHIP — permanent guardian of vision, only escalates genuine decisions to user; (3) MARKET BENCHMARKING — maintains BENCHMARK.md with competitor screenshots, approves all UI Agent designs before Backend executes. Never writes code.',
+      type: 'agent',
+      level: 0,
+      parentId: null,
+    },
+    {
+      id: 'ui-agent',
+      label: 'UI Agent',
+      role: 'UI/UX Designer',
+      description: 'Owns all visual design, UX, and frontend look & feel. Reads VISION.md and BENCHMARK.md before designing. Takes Playwright screenshots for direct competitor comparison. Presents designs to CTO for approval before any code is written. Never contacts the user — always escalates to CTO.',
+      type: 'agent',
+      level: 1,
+      parentId: 'cto',
+    },
+    {
+      id: 'backend',
+      label: 'Backend Programmer',
+      role: 'Backend Engineer',
+      description: 'Executes only CTO-approved, UI-Agent-specified instructions. Writes server-side logic, database schemas, API routes, and frontend code exactly as specced. Commits and pushes to GitHub after every task. Unclear things go to UI Agent, never the user.',
+      type: 'agent',
+      level: 2,
+      parentId: 'ui-agent',
+    },
+    {
+      id: 'auditor',
+      label: 'Auditor',
+      role: 'QA Engineer',
+      description: 'After UI Agent and Backend complete a feature, enumerates every possible user interaction and tests each using Playwright with video recording and screenshots. Reports bugs to Backend Programmer with UI Agent approval. Never contacts the user — unresolved issues escalate to CTO.',
+      type: 'agent',
+      level: 1,
+      parentId: 'cto',
+    },
+    {
+      id: 'security',
+      label: 'Security Agent',
+      role: 'Security Engineer',
+      description: 'Starts only when CTO signals UI and backend are complete. Audits auth, authorization, input validation, SQL injection, XSS, CSRF, dependency vulnerabilities, and secrets exposure. Reports to Backend Programmer.',
+      type: 'agent',
+      level: 1,
+      parentId: 'cto',
+    },
+  ],
+}
+
 let nextTabId = 2
 
 function TabStrip({ tabs, activeTabId, onSelect, onAdd, onRename, onClose }) {
@@ -108,7 +177,7 @@ function TabStrip({ tabs, activeTabId, onSelect, onAdd, onRename, onClose }) {
 }
 
 export default function Dashboard() {
-  const [tabs, setTabs] = useState([{ id: 1, name: 'Project 1', orgData: null, builderActive: false }])
+  const [tabs, setTabs] = useState([{ id: 1, name: 'Project 1', orgData: DEFAULT_ORG, builderActive: false }])
   const [activeTabId, setActiveTabId] = useState(1)
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [user, setUser] = useState(null)
@@ -142,7 +211,7 @@ export default function Dashboard() {
   function addTab() {
     const id = nextTabId++
     const name = `Project ${id}`
-    setTabs(prev => [...prev, { id, name, orgData: null, builderActive: false }])
+    setTabs(prev => [...prev, { id, name, orgData: DEFAULT_ORG, builderActive: false }])
     setActiveTabId(id)
     setSelectedAgent(null)
   }
