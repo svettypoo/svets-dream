@@ -110,6 +110,8 @@ RULES:
     : `\n\nGlobal Rules:\n${defaultRules}`
 
   const isCTO = /cto|chief\s*tech/i.test(agent.role || '') || /cto/i.test(agent.label || '')
+  // Top-level manager = level 0 agent (not rules node) — includes CTO, CMO, Ops Director, Strategist, etc.
+  const isTopAgent = (agent.level === 0 || agent.level === '0' || isCTO) && agent.id !== 'rules'
   const isUIAgent = /ui\s*agent|design|ux|front.?end/i.test(agent.role || '') || /ui\s*agent/i.test(agent.label || '')
 
   // Build the team roster for the CTO's delegation reference
@@ -206,7 +208,7 @@ STEP 4 — QUALITY GATE (permanent)
 - If anything is below standard: say exactly what's wrong and re-delegate with specific corrections
 - After 2 failed corrections: bring the specific decision to the user with both positions
 
-${delegationSection}` : delegationSection
+${delegationSection}` : (isTopAgent ? delegationSection : '')
 
   const uiAgentExtra = isUIAgent ? `
 
@@ -354,13 +356,14 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
               const command = signal.command || signal.cmd
               if (!command) continue
 
-              // CTO must not run implementation commands — only read-only file ops allowed
-              if (isCTO) {
+              // Top-level managers must not run software implementation commands — they must delegate
+              if (isTopAgent) {
                 const trimmed = command.trim()
-                const isReadOnly = /^(ls|cat|find|head|tail|echo|pwd|grep|wc|stat)\b/.test(trimmed)
-                if (!isReadOnly) {
-                  send(`\n\n⛔ **CTO cannot run commands directly.** Assign this to a team member:\n\n\`\`\`\nBlocked command: ${command.slice(0, 120)}\n\`\`\`\n\nUse __delegate__ to give this task to the right agent on your team.`)
-                  commandOutputSummary += `\n\nSYSTEM: CTO tried to run bash directly. Command blocked: \`${command}\`. You MUST use __delegate__ to assign this work. Do not run commands yourself — you are the CTO, not the implementer.`
+                // Block: package managers, runtimes, build tools, compilers, git commit/push
+                const isImplementation = /\b(npm\s+(install|run|build|start|test)|npx\s|node\s+[^\-]|python3?\s+[^\-]|pip\s|yarn\s+(add|install|build|run)|bun\s+(install|run|build|add)|make\b|gcc\b|cargo\b|mvn\b|gradle\b|git\s+(commit|push|merge|rebase))\b/.test(trimmed)
+                if (isImplementation) {
+                  send(`\n\n⛔ **CTO cannot run implementation commands directly.** Assign this to a team member:\n\n\`\`\`\nBlocked command: ${command.slice(0, 120)}\n\`\`\`\n\nUse __delegate__ to give this task to the right agent on your team.`)
+                  commandOutputSummary += `\n\nSYSTEM: CTO tried to run an implementation command directly. Blocked: \`${command}\`. You MUST use __delegate__ to assign this work to a team member. You are the manager, not the implementer.`
                   continue
                 }
               }
@@ -381,9 +384,9 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
             } else if (key === '__vm_exec__' && userId) {
               const command = signal.command || signal.cmd
               if (!command) continue
-              if (isCTO) {
-                send(`\n\n⛔ **CTO cannot run VM commands directly.** Delegate this to the right team member using __delegate__.`)
-                commandOutputSummary += `\n\nSYSTEM: CTO tried to use VM directly. Blocked. Use __delegate__ to assign this work to a team member.`
+              if (isTopAgent) {
+                send(`\n\n⛔ **Managers cannot run VM commands directly.** Delegate this to the right team member using __delegate__.`)
+                commandOutputSummary += `\n\nSYSTEM: Top-level manager tried to use VM directly. Blocked. Use __delegate__ to assign this work to a team member.`
                 continue
               }
               send(`\n\n🖥️ **VM:** \`${command.slice(0, 80)}\``)
