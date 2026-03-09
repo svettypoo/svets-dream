@@ -55,15 +55,15 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   }
 
   return (
-    <div style={{ width: 360, minWidth: 320, display: 'flex', flexDirection: 'column', background: '#070d1c', borderRight: '1px solid #0f172a', height: '100%' }}>
+    <div style={{ width: 360, minWidth: 320, display: 'flex', flexDirection: 'column', background: '#0d1829', borderRight: '1px solid #1e3a5f', height: '100%' }}>
       {/* Header */}
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid #0f172a', background: 'rgba(99,102,241,0.08)' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e3a5f', background: 'rgba(99,102,241,0.12)' }}>
         <div style={{ color: '#a78bfa', fontWeight: 800, fontSize: 17, letterSpacing: '-0.3px' }}>{"Svet's Dream"}</div>
         <div style={{ color: '#475569', fontSize: 11, marginTop: 2, letterSpacing: 0.3 }}>AI Agent Corporate Structure</div>
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10, scrollbarWidth: 'none' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10, scrollbarWidth: 'none', background: '#0d1829' }}>
         <style>{`div::-webkit-scrollbar{display:none}`}</style>
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -116,7 +116,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
       </div>
 
       {/* Input */}
-      <div style={{ padding: '12px', borderTop: '1px solid #0f172a', background: '#070d1c' }}>
+      <div style={{ padding: '12px', borderTop: '1px solid #1e3a5f', background: '#0a1520' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <textarea
             value={input} onChange={e => setInput(e.target.value)}
@@ -124,13 +124,13 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             placeholder="Describe your organization..." disabled={loading} rows={3}
             style={{
               flex: 1, padding: '10px 12px', borderRadius: 10,
-              border: '1px solid #1e293b', outline: 'none', fontSize: 13,
+              border: '1px solid #1e3a5f', outline: 'none', fontSize: 13,
               resize: 'none', fontFamily: 'inherit', lineHeight: 1.5,
-              background: '#0d1526', color: '#e2e8f0',
+              background: '#071018', color: '#e2e8f0',
               transition: 'border-color 0.15s',
             }}
             onFocus={e => e.target.style.borderColor = '#6366f1'}
-            onBlur={e => e.target.style.borderColor = '#1e293b'}
+            onBlur={e => e.target.style.borderColor = '#1e3a5f'}
           />
           <button onClick={send} disabled={loading || !input.trim()}
             style={{

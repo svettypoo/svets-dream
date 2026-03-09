@@ -66,7 +66,7 @@ function StarField() {
         <div style={{ position:'absolute', top:7, left:9, width:5, height:5, borderRadius:'50%', background:'rgba(0,0,0,0.1)' }}/>
         <div style={{ position:'absolute', top:14, left:5, width:3, height:3, borderRadius:'50%', background:'rgba(0,0,0,0.08)' }}/>
       </div>
-      {stars.current.map((s, i) => (
+      {stars.map((s, i) => (
         <div key={i} style={{
           position: 'absolute',
           left: `${s.x}%`,
