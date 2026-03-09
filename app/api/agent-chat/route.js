@@ -106,13 +106,29 @@ Respond in character as ${agent.label}. Be direct, decisive, and capable.`
     const keys = ['__bash_exec__', '__vm_exec__', '__playwright__', '__walkthrough__']
     const found = []
     for (const key of keys) {
-      const re = new RegExp(`\\{"${key}"[\\s\\S]*?\\}(?=\\s*(?:\\n|$|[^,]))`, 'g')
-      let m
-      while ((m = re.exec(text)) !== null) {
-        try {
-          const parsed = JSON.parse(m[0])
-          found.push({ key, signal: parsed, index: m.index })
-        } catch {}
+      const startMarker = `{"${key}"`
+      let searchFrom = 0
+      while (true) {
+        const idx = text.indexOf(startMarker, searchFrom)
+        if (idx === -1) break
+        // Walk from idx tracking depth + string context to find the closing }
+        let depth = 0, inString = false, escape = false, end = -1
+        for (let i = idx; i < text.length; i++) {
+          const ch = text[i]
+          if (escape) { escape = false; continue }
+          if (ch === '\\' && inString) { escape = true; continue }
+          if (ch === '"') { inString = !inString; continue }
+          if (inString) continue
+          if (ch === '{') depth++
+          else if (ch === '}') { depth--; if (depth === 0) { end = i; break } }
+        }
+        if (end !== -1) {
+          try {
+            const parsed = JSON.parse(text.slice(idx, end + 1))
+            found.push({ key, signal: parsed, index: idx })
+          } catch {}
+        }
+        searchFrom = idx + 1
       }
     }
     found.sort((a, b) => a.index - b.index)
