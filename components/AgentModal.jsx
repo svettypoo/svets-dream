@@ -11,13 +11,19 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  function emit(type, text) {
+    window.dispatchEvent(new CustomEvent('agentActivity', { detail: { agent: agent.label, type, text } }))
+  }
+
   async function send() {
     if (!input.trim() || loading) return
     const userMsg = { role: 'user', content: input.trim() }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
+    emit('sent', input.trim().slice(0, 80))
     setInput('')
     setLoading(true)
+    emit('thinking', `${agent.label} is thinking...`)
 
     try {
       const res = await fetch('/api/agent-chat', {
@@ -40,14 +46,33 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        assistantText += decoder.decode(value, { stream: true })
+        const chunk = decoder.decode(value, { stream: true })
+        assistantText += chunk
+
+        // Emit activity events based on signals detected in stream
+        if (chunk.includes('💻 **Running:**')) {
+          const cmd = chunk.match(/`([^`]+)`/)
+          emit('bash', cmd ? cmd[1] : 'Running bash command...')
+        } else if (chunk.includes('🖥️ **VM:**')) {
+          emit('vm', 'Executing in VM sandbox...')
+        } else if (chunk.includes('🌐 **Browser:**')) {
+          emit('browser', chunk.replace('🌐 **Browser:**', '').trim().slice(0, 60))
+        } else if (chunk.includes('🔍') || chunk.toLowerCase().includes('searching')) {
+          emit('search', 'Searching the web...')
+        } else if (chunk.includes('**Output**') || chunk.includes('**Host Output**')) {
+          emit('observe', 'Reading command output...')
+        }
+
         setMessages(prev => [
           ...prev.slice(0, -1),
           { role: 'assistant', content: assistantText },
         ])
       }
+
+      emit('complete', `${agent.label} finished responding`)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
+      emit('error', err.message)
     } finally {
       setLoading(false)
     }

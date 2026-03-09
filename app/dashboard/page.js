@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import BuilderChat from '@/components/BuilderChat'
 import AgentModal from '@/components/AgentModal'
+import ActivityFeed from '@/components/ActivityFeed'
 import { createClient } from '@/lib/supabase'
 
 const OrgChart = dynamic(() => import('@/components/OrgChart'), { ssr: false })
@@ -59,11 +60,23 @@ export default function Dashboard() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', flexDirection: 'column', background: '#050d1a' }}>
+      <style>{`
+        @keyframes drift {
+          0% { transform: translateY(0px); }
+          50% { transform: translateY(-8px); }
+          100% { transform: translateY(0px); }
+        }
+        @keyframes shootingstar {
+          0% { transform: translateX(0) translateY(0); opacity: 1; }
+          100% { transform: translateX(200px) translateY(80px); opacity: 0; }
+        }
+      `}</style>
       {/* Top bar */}
       <div style={{
-        height: 44, background: '#0f0f0f', borderBottom: '1px solid #222',
+        height: 44, background: 'rgba(5,13,26,0.95)', borderBottom: '1px solid #0f172a',
         display: 'flex', alignItems: 'center', padding: '0 16px', gap: 12, flexShrink: 0,
+        backdropFilter: 'blur(8px)',
       }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#a78bfa', letterSpacing: '-0.3px' }}>
           ✦ Svet's Dream
@@ -100,10 +113,10 @@ export default function Dashboard() {
         {/* Left: Builder Chat */}
         <BuilderChat ref={chatRef} onOrgUpdate={handleOrgUpdate} />
 
-        {/* Right: Org Chart */}
+        {/* Center: Org Chart */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ height: 48, borderBottom: '1px solid #1e293b', background: '#0f172a', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 12 }}>
-            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>
+          <div style={{ height: 48, borderBottom: '1px solid #0f172a', background: 'rgba(5,13,26,0.9)', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 12 }}>
+            <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
               {orgData?.nodes?.length
                 ? `${orgData.nodes.filter(n => n.id !== 'rules').length} agents · Click any node to chat`
                 : 'Describe your org in the chat to get started'}
@@ -114,6 +127,9 @@ export default function Dashboard() {
           </div>
           <OrgChart ref={chartRef} orgData={orgData} onNodeClick={setSelectedAgent} />
         </div>
+
+        {/* Right: Activity Feed */}
+        <ActivityFeed />
       </div>
 
       {selectedAgent && (
