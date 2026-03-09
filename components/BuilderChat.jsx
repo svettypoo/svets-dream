@@ -112,7 +112,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: "Welcome to Svet's Dream. Describe your AI agent organization and I'll build the corporate structure for you. For example: \"I run a marketing agency with a CEO, a content team, and a paid ads team.\"",
+      content: "Welcome to Svet's Dream. What do you want to build? Describe your idea and I'll assemble the right team for it.",
     },
   ])
   const [input, setInput] = useState('')
@@ -245,7 +245,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
               <textarea
                 value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                placeholder="Describe your organization..." disabled={loading} rows={3}
+                placeholder="What do you want to build?" disabled={loading} rows={3}
                 style={{
                   flex: 1, padding: '10px 12px', borderRadius: 10,
                   border: '1px solid #1e3a5f', outline: 'none', fontSize: 13,

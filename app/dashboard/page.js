@@ -333,7 +333,7 @@ export default function Dashboard() {
             <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
               {activeTab?.orgData?.nodes?.length
                 ? `${activeTab.orgData.nodes.filter(n => n.id !== 'rules').length} agents · Click any node to chat`
-                : 'Describe your org in the chat to get started'}
+                : 'Tell us what you want to build'}
             </span>
             {activeTab?.orgData && (
               <span style={{ marginLeft: 'auto', fontSize: 11, color: '#a78bfa', background: '#a78bfa15', padding: '3px 10px', borderRadius: 20, fontWeight: 600 }}>Live</span>

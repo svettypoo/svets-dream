@@ -119,8 +119,8 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
           ))}
         </svg>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.2px' }}>Build your agent organization</div>
-          <div style={{ fontSize: 12, color: '#334155', marginTop: 5 }}>Describe your team structure in the chat</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.2px' }}>Tell us what you want to build</div>
+          <div style={{ fontSize: 12, color: '#334155', marginTop: 5 }}>Your team will assemble here</div>
         </div>
       </div>
     )
