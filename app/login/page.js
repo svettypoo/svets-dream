@@ -1,21 +1,36 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
+const STORAGE_KEY = 'sd_remember'
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
+      if (saved?.email) { setEmail(saved.email); setPassword(saved.password || ''); setRemember(true) }
+    } catch {}
+  }, [])
+
   async function handleLogin(e) {
     e.preventDefault()
     setLoading(true)
     setError('')
+    if (remember) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ email, password }))
+    } else {
+      localStorage.removeItem(STORAGE_KEY)
+    }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { setError(error.message); setLoading(false) }
     else router.push('/dashboard')
@@ -35,6 +50,11 @@ export default function LoginPage() {
             type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required
             style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #333', background: '#111', color: '#fff', fontSize: 14 }}
           />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}
+              style={{ width: 15, height: 15, accentColor: '#6366f1', cursor: 'pointer' }} />
+            <span style={{ color: '#888', fontSize: 13 }}>Remember me</span>
+          </label>
           {error && <p style={{ color: '#f87171', fontSize: 13 }}>{error}</p>}
           <button type="submit" disabled={loading}
             style={{ padding: '10px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 600, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}>

