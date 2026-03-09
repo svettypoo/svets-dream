@@ -26,6 +26,63 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     window.dispatchEvent(new CustomEvent('agentActivity', { detail: { agent: agent.label, type, text } }))
   }
 
+  function emitBuild(type, data) {
+    window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type, data } }))
+  }
+
+  // Parse commands, outputs, files, and URLs from accumulated stream text.
+  // Returns newly found events since lastIdx, and the new lastIdx.
+  function parseBuilderEventsFrom(text, lastIdx) {
+    const slice = text.slice(lastIdx)
+    const events = []
+    let newIdx = lastIdx
+
+    // Command: 💻 **Running:** `cmd`
+    const cmdRe = /💻 \*\*Running:\*\* `([^`\n]{1,300})`/g
+    let m
+    while ((m = cmdRe.exec(slice)) !== null) {
+      const absEnd = lastIdx + m.index + m[0].length
+      if (absEnd > lastIdx) {
+        events.push({ type: 'command', data: { command: m[1] }, absEnd })
+      }
+    }
+
+    // Output block: **Output** (exit N):\n```\n...\n```
+    const outRe = /\*\*(?:Host )?(?:VM )?Output\*\*(?:[^\n]*\(exit (\d+)\))?[^\n]*\n```[^\n]*\n([\s\S]*?)```/g
+    while ((m = outRe.exec(slice)) !== null) {
+      const absEnd = lastIdx + m.index + m[0].length
+      if (absEnd > lastIdx) {
+        const exitCode = m[1] !== undefined ? parseInt(m[1]) : 0
+        const output = m[2].trimEnd()
+        events.push({ type: 'output', data: { exitCode, output }, absEnd })
+
+        // URL detection in output
+        const urlMatch = output.match(/https?:\/\/localhost:\d+|http:\/\/127\.0\.0\.1:\d+/)
+        if (urlMatch) {
+          events.push({ type: 'url', data: { url: urlMatch[0] }, absEnd })
+        }
+      }
+    }
+
+    // File detection from bash heredoc: cat > path << or tee path
+    const fileRe = /(?:cat\s*>\s*([^\s<'"]+)|tee\s+([^\s'"]+))\s*<<[^']*'?EOF'?\s*\n([\s\S]*?)\nEOF/g
+    while ((m = fileRe.exec(slice)) !== null) {
+      const absEnd = lastIdx + m.index + m[0].length
+      if (absEnd > lastIdx) {
+        const path = (m[1] || m[2]).trim()
+        events.push({ type: 'file', data: { path, content: m[3] }, absEnd })
+      }
+    }
+
+    // Sort by position so events are emitted in order
+    events.sort((a, b) => a.absEnd - b.absEnd)
+
+    // Update newIdx to furthest event seen
+    if (events.length > 0) newIdx = events[events.length - 1].absEnd
+
+    return { events, newIdx }
+  }
+
   function stop() {
     if (abortRef.current) {
       abortRef.current.abort()
@@ -70,6 +127,7 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let assistantText = ''
+      let builderParsedIdx = 0
 
       setMessages(prev => [...prev, { role: 'assistant', content: '' }])
 
@@ -78,6 +136,13 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
         if (done) break
         const chunk = decoder.decode(value, { stream: true })
         assistantText += chunk
+
+        // Dispatch builder events as they arrive
+        const { events, newIdx } = parseBuilderEventsFrom(assistantText, builderParsedIdx)
+        builderParsedIdx = newIdx
+        for (const evt of events) {
+          emitBuild(evt.type, evt.data)
+        }
 
         if (chunk.includes('💻 **Running:**')) {
           const cmd = chunk.match(/`([^`]+)`/)

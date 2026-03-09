@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import BuilderChat from '@/components/BuilderChat'
 import AgentModal from '@/components/AgentModal'
 import ActivityFeed from '@/components/ActivityFeed'
+import BuilderPreview from '@/components/BuilderPreview'
 import { createClient } from '@/lib/supabase'
 
 const OrgChart = dynamic(() => import('@/components/OrgChart'), { ssr: false })
@@ -13,6 +14,7 @@ export default function Dashboard() {
   const [orgData, setOrgData] = useState(null)
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [user, setUser] = useState(null)
+  const [builderActive, setBuilderActive] = useState(false)
   const chartRef = useRef(null)
   const chatRef = useRef(null)
   const router = useRouter()
@@ -24,6 +26,15 @@ export default function Dashboard() {
       else setUser(data.user)
     })
   }, [router])
+
+  // Show BuilderPreview the first time any build event fires
+  useEffect(() => {
+    function onBuild() {
+      setBuilderActive(true)
+    }
+    window.addEventListener('builderUpdate', onBuild)
+    return () => window.removeEventListener('builderUpdate', onBuild)
+  }, [])
 
   const rulesNode = orgData?.nodes?.find(n => n.id === 'rules')
   const rulesDescription = rulesNode?.description
@@ -114,7 +125,7 @@ export default function Dashboard() {
         <BuilderChat ref={chatRef} onOrgUpdate={handleOrgUpdate} />
 
         {/* Center: Org Chart */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
           <div style={{ height: 48, borderBottom: '1px solid #0f172a', background: 'rgba(5,13,26,0.9)', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 12 }}>
             <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
               {orgData?.nodes?.length
@@ -127,6 +138,9 @@ export default function Dashboard() {
           </div>
           <OrgChart ref={chartRef} orgData={orgData} onNodeClick={setSelectedAgent} />
         </div>
+
+        {/* Build Preview — slides in when agents start executing */}
+        <BuilderPreview visible={builderActive} />
 
         {/* Right: Activity Feed */}
         <ActivityFeed />
