@@ -21,7 +21,7 @@ function layoutNodes(rawNodes) {
     if (!levels[lvl]) levels[lvl] = []
     levels[lvl].push(n)
   }
-  const NODE_W = 220, NODE_H = 130, H_GAP = 40, V_GAP = 80
+  const NODE_W = 260, NODE_H = 160, H_GAP = 50, V_GAP = 100
   const positioned = []
   const maxLevel = Math.max(...Object.keys(levels).map(Number))
   for (let lvl = 0; lvl <= maxLevel; lvl++) {
@@ -46,21 +46,30 @@ function layoutNodes(rawNodes) {
   }
   const edges = []
   for (const n of orgNodes) {
-    if (n.parentId && n.parentId !== 'rules') {
-      edges.push({
-        id: `e-${n.parentId}-${n.id}`, source: n.parentId, target: n.id, type: 'smoothstep',
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#0EA5E9' },
-        style: { stroke: '#0EA5E9', strokeWidth: 1.5 },
-      })
+    // Support both parentId (single) and parentIds (array)
+    const parents = n.parentIds?.length ? n.parentIds : (n.parentId ? [n.parentId] : [])
+    for (const pid of parents) {
+      if (pid && pid !== 'rules') {
+        edges.push({
+          id: `e-${pid}-${n.id}`, source: pid, target: n.id, type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#0EA5E9' },
+          style: { stroke: '#0EA5E9', strokeWidth: 1.5 },
+        })
+      }
     }
   }
   return { nodes: positioned, edges }
 }
 
-const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, introNodeIds = new Set(), agentChats = {} }, ref) {
+const EMPTY_SET = new Set()
+
+const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, introNodeIds = EMPTY_SET, agentChats = {}, activeAgents = EMPTY_SET }, ref) {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const containerRef = useRef(null)
+
+  // Stable key for activeAgents set — only triggers re-render when the set contents change
+  const activeAgentsKey = useMemo(() => [...activeAgents].sort().join(','), [activeAgents])
 
   useImperativeHandle(ref, () => ({
     async screenshot() {
@@ -88,7 +97,15 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
     }))
     setNodes(withClick)
     setEdges(edged)
-  }, [orgData, introNodeIds, agentChats])
+  }, [orgData, introNodeIds, agentChats]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Separately update isActive without re-running full layout
+  useEffect(() => {
+    setNodes(prev => prev.map(n => ({
+      ...n,
+      data: { ...n.data, isActive: activeAgents.has(n.data.nodeId) },
+    })))
+  }, [activeAgentsKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const nodeTypes = useMemo(() => NODE_TYPES, [])
 
@@ -139,10 +156,10 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
   )
 })
 
-const OrgChart = forwardRef(function OrgChart({ introNodeIds, agentChats, ...props }, ref) {
+const OrgChart = forwardRef(function OrgChart({ introNodeIds, agentChats, activeAgents, ...props }, ref) {
   return (
     <ReactFlowProvider>
-      <OrgChartInner {...props} introNodeIds={introNodeIds} agentChats={agentChats} ref={ref} />
+      <OrgChartInner {...props} introNodeIds={introNodeIds} agentChats={agentChats} activeAgents={activeAgents} ref={ref} />
     </ReactFlowProvider>
   )
 })

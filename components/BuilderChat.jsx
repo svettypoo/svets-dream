@@ -2,6 +2,54 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase'
 
+function MarkdownText({ text }) {
+  if (!text) return null
+  // Convert markdown to styled spans/divs
+  const lines = text.split('\n')
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {lines.map((line, i) => {
+        if (!line.trim()) return <div key={i} style={{ height: 4 }} />
+        // Headers
+        if (line.startsWith('### ')) return <div key={i} style={{ fontWeight: 700, fontSize: 13, color: '#a78bfa', marginTop: 6 }}>{renderInline(line.slice(4))}</div>
+        if (line.startsWith('## ')) return <div key={i} style={{ fontWeight: 700, fontSize: 14, color: '#c4b5fd', marginTop: 8 }}>{renderInline(line.slice(3))}</div>
+        if (line.startsWith('# ')) return <div key={i} style={{ fontWeight: 800, fontSize: 15, color: '#e2e8f0', marginTop: 8 }}>{renderInline(line.slice(2))}</div>
+        // Bullet points
+        if (line.match(/^[-*•]\s/)) return (
+          <div key={i} style={{ display: 'flex', gap: 8, paddingLeft: 4 }}>
+            <span style={{ color: '#6366f1', flexShrink: 0, marginTop: 1 }}>▸</span>
+            <span>{renderInline(line.replace(/^[-*•]\s/, ''))}</span>
+          </div>
+        )
+        // Numbered list
+        if (line.match(/^\d+\.\s/)) return (
+          <div key={i} style={{ display: 'flex', gap: 8, paddingLeft: 4 }}>
+            <span style={{ color: '#6366f1', flexShrink: 0, minWidth: 16, fontWeight: 700, fontSize: 11 }}>{line.match(/^(\d+)\./)[1]}.</span>
+            <span>{renderInline(line.replace(/^\d+\.\s/, ''))}</span>
+          </div>
+        )
+        // Regular paragraph
+        return <div key={i}>{renderInline(line)}</div>
+      })}
+    </div>
+  )
+}
+
+function renderInline(text) {
+  // Bold: **text**
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return parts.map((p, i) => {
+    if (p.startsWith('**') && p.endsWith('**')) {
+      return <strong key={i} style={{ color: '#e2e8f0', fontWeight: 700 }}>{p.slice(2, -2)}</strong>
+    }
+    // Italic: *text*
+    if (p.startsWith('*') && p.endsWith('*') && p.length > 2) {
+      return <em key={i} style={{ color: '#94a3b8' }}>{p.slice(1, -1)}</em>
+    }
+    return p
+  })
+}
+
 const supabase = createClient()
 
 function AllChatsView() {
@@ -216,7 +264,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                         {m.passed ? '✓ Visual Check Passed' : '✗ Visual Check Failed'}
                       </div>
                     )}
-                    {m.content}
+                    {m.role === 'assistant' ? <MarkdownText text={m.content} /> : m.content}
                   </div>
                 </div>
                 {m.screenshot && (

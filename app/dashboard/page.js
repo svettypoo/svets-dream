@@ -137,6 +137,11 @@ export default function Dashboard() {
     })
   }, [router])
 
+  // Auto-load default org on first mount
+  useEffect(() => {
+    handleOrgUpdate(getDefaultOrg())
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Show BuilderPreview when agents start executing on active tab
   useEffect(() => {
     function onBuild() {
