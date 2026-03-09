@@ -128,6 +128,8 @@ export default function Dashboard() {
   const router = useRouter()
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0]
+  const tabsRef = useRef(tabs)
+  useEffect(() => { tabsRef.current = tabs }, [tabs])
 
   useEffect(() => {
     const supabase = createClient()
@@ -136,11 +138,6 @@ export default function Dashboard() {
       else setUser(data.user)
     })
   }, [router])
-
-  // Auto-load default org on first mount
-  useEffect(() => {
-    handleOrgUpdate(getDefaultOrg())
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show BuilderPreview when agents start executing on active tab
   useEffect(() => {
@@ -212,6 +209,15 @@ export default function Dashboard() {
   const handleOrgUpdate = useCallback((newOrg) => {
     if (!newOrg?.nodes?.length) return
 
+    // Skip reload if org structure hasn't changed (same node IDs)
+    const currentTab = tabsRef.current.find(t => t.id === activeTabId)
+    const currentNodes = currentTab?.orgData?.nodes
+    if (currentNodes?.length === newOrg.nodes.length) {
+      const currentIds = currentNodes.map(n => n.id).sort().join(',')
+      const newIds = newOrg.nodes.map(n => n.id).sort().join(',')
+      if (currentIds === newIds) return
+    }
+
     // Clear any in-progress reveal
     revealTimersRef.current.forEach(clearTimeout)
     revealTimersRef.current = []
@@ -267,6 +273,8 @@ export default function Dashboard() {
         const dataUrl = await chartRef.current?.screenshot()
         if (!dataUrl) return
         const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
+        // Skip if image is too large (>1.5MB base64 ≈ ~1.1MB image)
+        if (base64.length > 1500000) return
         const res = await fetch('/api/assess', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -347,8 +355,8 @@ export default function Dashboard() {
           <OrgChart ref={chartRef} orgData={activeTab?.orgData} onNodeClick={setSelectedAgent} introNodeIds={introNodeIds} agentChats={agentChats} />
         </div>
 
-        {/* Build Preview — slides in when agents start executing */}
-        <BuilderPreview visible={activeTab?.builderActive} />
+        {/* Build Preview — always visible */}
+        <BuilderPreview visible={true} />
 
         {/* Right: Activity Feed */}
         <ActivityFeed />

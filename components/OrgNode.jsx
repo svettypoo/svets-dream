@@ -153,6 +153,9 @@ export default function OrgNode({ data, selected }) {
         <div style={{
           fontSize: 11, color: colors.text === '#0F172A' ? '#64748B' : 'rgba(255,255,255,0.6)',
           lineHeight: 1.5,
+          maxHeight: 72,
+          overflowY: 'auto',
+          scrollbarWidth: 'none',
         }}>
           {data.description}
         </div>

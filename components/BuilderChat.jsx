@@ -155,12 +155,18 @@ function AllChatsView() {
   )
 }
 
+const CTO_AVATAR = `https://api.dicebear.com/9.x/avataaars/svg?seed=CTO&backgroundColor=0ea5e9,38bdf8,6366f1&backgroundType=gradientLinear`
+
+function dispatchActivity(agent, type, text) {
+  window.dispatchEvent(new CustomEvent('agentActivity', { detail: { agent, type, text } }))
+}
+
 const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [view, setView] = useState('builder') // 'builder' | 'history'
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: "Welcome to Svet's Dream. What do you want to build? Describe your idea and I'll assemble the right team for it.",
+      content: "Welcome to Svet's Dream.\n\nWhat do you want to build? Describe your idea and I'll assemble your team.",
     },
   ])
   const [input, setInput] = useState('')
@@ -185,6 +191,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setLoading(true)
+    dispatchActivity('CTO', 'thinking', 'Reading your message...')
 
     try {
       const res = await fetch('/api/build-org', {
@@ -199,10 +206,16 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
       if (parsed.org) {
         setCurrentOrg(parsed.org)
         onOrgUpdate(parsed.org)
+        dispatchActivity('CTO', 'complete', 'Team assembled')
+        // Activate build preview panel
+        window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'info', data: { text: 'Team assembled — ready to build' } } }))
       }
 
-      setMessages(prev => [...prev, { role: 'assistant', content: parsed.message || 'Organization updated.' }])
+      const reply = parsed.message || 'Got it.'
+      dispatchActivity('CTO', 'sent', reply.slice(0, 120))
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch (err) {
+      dispatchActivity('CTO', 'error', err.message)
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
     } finally {
       setLoading(false)
@@ -210,7 +223,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   }
 
   return (
-    <div style={{ width: 360, minWidth: 320, display: 'flex', flexDirection: 'column', background: '#0d1829', borderRight: '1px solid #1e3a5f', height: '100%' }}>
+    <div style={{ width: 620, minWidth: 440, display: 'flex', flexDirection: 'column', background: '#0d1829', borderRight: '1px solid #1e3a5f', height: '100%' }}>
       {/* Header */}
       <div style={{ padding: '14px 20px 0', borderBottom: '1px solid #1e3a5f', background: 'rgba(99,102,241,0.12)', flexShrink: 0 }}>
         <div style={{ color: '#a78bfa', fontWeight: 800, fontSize: 17, letterSpacing: '-0.3px', marginBottom: 10 }}>{"Svet's Dream"}</div>
@@ -239,14 +252,17 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             <style>{`div::-webkit-scrollbar{display:none}`}</style>
             {messages.map((m, i) => (
               <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                {m.role === 'assistant' && !m.isAssessment && (
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#0EA5E9', letterSpacing: '0.08em', textTransform: 'uppercase', marginLeft: 38, marginBottom: 3 }}>CTO</div>
+                )}
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: m.role === 'user' ? 'row-reverse' : 'row' }}>
                   {m.role === 'assistant' && (
-                    <div style={{
-                      width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                      background: m.isAssessment ? (m.passed ? 'linear-gradient(135deg,#10B981,#059669)' : 'linear-gradient(135deg,#EF4444,#DC2626)') : 'linear-gradient(135deg,#6366f1,#a78bfa)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700,
-                    }}>
-                      {m.isAssessment ? (m.passed ? '✓' : '✗') : 'S'}
+                    <div style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', border: '1.5px solid #0EA5E9', background: '#0c2040', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {m.isAssessment ? (
+                        <span style={{ fontSize: 12, color: m.passed ? '#10B981' : '#EF4444' }}>{m.passed ? '✓' : '✗'}</span>
+                      ) : (
+                        <img src={CTO_AVATAR} alt="CTO" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
                     </div>
                   )}
                   <div style={{
@@ -280,8 +296,16 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             ))}
             {loading && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#a78bfa)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>S</div>
-                <div style={{ padding: '9px 13px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', fontSize: 13, color: '#475569' }}>Building org structure...</div>
+                <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', border: '1.5px solid #0EA5E9', background: '#0c2040', flexShrink: 0 }}>
+                  <img src={CTO_AVATAR} alt="CTO" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <style>{`@keyframes thinkDot{0%,80%,100%{transform:scale(0);opacity:0.3}40%{transform:scale(1);opacity:1}}`}</style>
+                  {[0, 0.15, 0.3].map((d, i) => (
+                    <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#a78bfa', animation: `thinkDot 1.2s ${d}s ease-in-out infinite` }} />
+                  ))}
+                  <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600, marginLeft: 4 }}>CTO is thinking...</span>
+                </div>
               </div>
             )}
             <div ref={bottomRef} />

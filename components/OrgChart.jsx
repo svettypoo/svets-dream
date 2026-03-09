@@ -76,7 +76,7 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
       const el = containerRef.current
       if (!el) return null
       try {
-        return await toPng(el, { backgroundColor: '#F0F9FF', quality: 0.95, pixelRatio: 1.5 })
+        return await toPng(el, { backgroundColor: '#F0F9FF', quality: 0.8, pixelRatio: 1.0 })
       } catch { return null }
     }
   }))
