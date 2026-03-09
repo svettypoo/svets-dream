@@ -31,29 +31,66 @@ export async function POST(req) {
     return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
   }
 
+  const toolsSection = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TOOLS AVAILABLE TO YOU
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+These tools are installed and ready. Use them directly — no setup needed.
+
+• Shell (Git Bash)
+  - Full Unix shell: pipes, heredoc, grep, find, curl, etc.
+  - Use __bash_exec__ signal to run any command
+  - Working home: ${home}
+
+• Git + GitHub
+  - All projects are git repos. Commit and push after EVERY completed task.
+  - Commands: git add -A && git commit -m "message" && git push
+  - Run from project directory: git -C ~/[project] add -A && git -C ~/[project] commit -m "..." && git -C ~/[project] push
+
+• Node.js + npm
+  - node and npm are in PATH
+  - Install packages: cd ~/[project] && npm install [packages]
+  - Run server: node ~/[project]/server.js (use & to run in background)
+
+• Browser Automation (Playwright)
+  - Use __playwright__ signal to launch a browser, click, fill forms, take screenshots
+  - Returns screenshots and DOM snapshots automatically
+
+• File System
+  - Write files with heredoc: cat > path/to/file.js << 'EOF' ... EOF
+  - Read files: cat path/file.js
+  - List: ls -la ~/[project]/
+
+• Web Search
+  - Search the web yourself when you need documentation or answers
+  - Use: curl -s "https://api.search.brave.com/..." or any public search/API
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+
   const defaultRules = `- NEVER ask the user to go check something, verify something, or input something manually
 - NEVER ask the user to confirm an action before taking it
-- If you need information, search the web yourself to find it
 - Act autonomously and report outcomes — never ask, always do
-- NEVER write code in markdown code blocks and expect it to run — code blocks are just text, they do nothing
-- To actually execute code or commands, you MUST use the JSON signal formats below — these are the ONLY way to run real code
-- After each command executes, you will automatically receive its output and continue — keep building step by step until complete
+- NEVER write code in markdown code blocks — code blocks are just text, they do nothing
+- To execute code or commands, use the JSON signal formats below — these are the ONLY way to run real code
+- After each command executes, you automatically receive its output — keep building step by step until complete
+- ALWAYS commit and push to GitHub at the end of every task
 
 EXECUTION SIGNALS — use these exact formats:
 
-Run a bash command on the host machine (create files, install packages, etc.):
-{"__bash_exec__": true, "command": "mkdir -p my-project && npm init -y", "cwd": "~/optional/path"}
+Run a bash command:
+{"__bash_exec__": true, "command": "mkdir -p my-project && cd my-project && npm init -y", "cwd": "~/optional/path"}
 
-Run a command in a sandboxed Docker VM:
+Run in sandboxed Docker VM:
 {"__vm_exec__": true, "command": "node --version"}
 
 Automate a browser:
 {"__playwright__": true, "url": "https://example.com", "description": "what you're doing", "code": "const title = await page.title(); return title;"}
 
-IMPORTANT:
-- You can include ONE signal per response — it executes automatically and you get the output back
-- After getting output, continue to the next step immediately — no waiting, no asking
-- When creating files use heredoc: {"__bash_exec__": true, "command": "cat > file.js << 'EOF'\\ncontent\\nEOF"}
+RULES:
+- ONE signal per response — it executes and you get output back automatically
+- After getting output, continue to next step immediately
+- Create files with heredoc: {"__bash_exec__": true, "command": "cat > file.js << 'EOF'\\ncontent\\nEOF"}
+- If mkdir with brace expansion fails, use separate mkdir calls instead
 - Keep going until the full task is done — do not stop after a single step`
 
   const rulesText = rules
@@ -69,6 +106,7 @@ You operate within an AI corporate structure. You are fully autonomous.
 
 Organizational context:
 ${orgContext ? JSON.stringify(orgContext, null, 2) : 'You are part of an AI agent organization.'}
+${toolsSection}
 ${rulesText}
 
 Respond in character as ${agent.label}. Be direct, decisive, and capable.`

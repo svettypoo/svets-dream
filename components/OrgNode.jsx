@@ -10,6 +10,9 @@ const NODE_COLORS = {
 export default function OrgNode({ data, selected }) {
   const colors = NODE_COLORS[data.nodeType] || NODE_COLORS.agent
   const isRules = data.nodeType === 'rules'
+  const avatarUrl = !isRules
+    ? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.label)}&backgroundColor=0ea5e9,38bdf8,6366f1&backgroundType=gradientLinear`
+    : null
 
   return (
     <div
@@ -18,7 +21,7 @@ export default function OrgNode({ data, selected }) {
         background: colors.bg,
         border: `2px solid ${selected ? '#6366F1' : colors.border}`,
         borderRadius: isRules ? 8 : 12,
-        padding: '12px 16px',
+        padding: avatarUrl ? '8px 16px 12px' : '12px 16px',
         minWidth: isRules ? 200 : 160,
         maxWidth: isRules ? 260 : 200,
         cursor: 'pointer',
@@ -30,6 +33,21 @@ export default function OrgNode({ data, selected }) {
       }}
     >
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+
+      {/* Avatar face */}
+      {avatarUrl && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+          <img
+            src={avatarUrl}
+            alt={data.label}
+            style={{
+              width: 52, height: 52, borderRadius: '50%',
+              border: `2px solid ${colors.border}`,
+              background: '#fff', flexShrink: 0,
+            }}
+          />
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
