@@ -4,3 +4,5 @@ node_modules/
 .next/
 *.png
 .vercel
+test-agent.mjs
+test-api.js

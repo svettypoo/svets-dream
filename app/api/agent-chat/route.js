@@ -90,12 +90,24 @@ export async function POST(req) {
 
   const implementerTools = [
     {
-      name: 'write_file',
-      description: 'Write any file to disk safely — use this instead of bash heredoc for HTML, CSS, JS, JSON, config files. Handles special characters without quoting issues.',
+      name: 'output_html',
+      description: 'Output a complete HTML website. Preferred over write_file for HTML because it handles large content reliably. The "html" field must contain the ENTIRE HTML document.',
       input_schema: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'File path (e.g. ~/myproject/index.html)' },
+          path: { type: 'string', description: 'Output path (e.g. ~/myproject/index.html)' },
+          html: { type: 'string', description: 'The COMPLETE HTML document — all CSS in <style> tags, all JS inline or via CDN. Must be a fully valid standalone HTML file.' },
+        },
+        required: ['path', 'html'],
+      },
+    },
+    {
+      name: 'write_file',
+      description: 'Write any non-HTML file to disk (CSS, JS, JSON, config files). For HTML files use output_html instead.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path (e.g. ~/myproject/style.css)' },
           content: { type: 'string', description: 'Full file content to write' },
         },
         required: ['path', 'content'],
@@ -204,23 +216,22 @@ YOUR RULES
 - Home directory: ${home}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STATIC HTML GENERATION (MANDATORY APPROACH)
+HTML GENERATION — MANDATORY APPROACH
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are running on a serverless environment. npm, git, npx, node servers — NONE of these are available.
-You MUST generate websites as self-contained static HTML files.
+You are running on a serverless environment. npm, git, npx, node servers — NONE are available.
+You MUST generate websites as self-contained single-file HTML.
 
-REQUIRED APPROACH:
-1. Call write_file with path="~/st-properties/index.html" and content=<FULL HTML>
-   (Note: ~ maps to /tmp on this server — this is the only writable directory)
-2. The HTML must be a single file with ALL CSS embedded in <style> tags
-3. Use CDN links for any JS libraries (e.g. <script src="https://cdn.tailwindcss.com"></script>)
-4. Make it look professional and complete — hero section, navigation, services, contact, footer
-5. After writing the file, include the full HTML content in your response wrapped in:
-   <!--PREVIEW_HTML_START-->
-   <full html here>
-   <!--PREVIEW_HTML_END-->
+REQUIRED STEPS:
+1. Use run_bash to read any VISION.md or project files first
+2. Call output_html with:
+   - path="~/[project]/index.html"
+   - html="<FULL COMPLETE HTML DOCUMENT>"
+   The "html" field MUST contain the ENTIRE HTML document — not a summary, not a description, the actual HTML code.
+3. The HTML must have ALL CSS in <style> tags, ALL JS inline or via CDN (e.g. https://cdn.tailwindcss.com)
+4. Make it look professional: hero, navigation, services, about, contact form, footer
 
-DO NOT attempt npm install, git push, or running a server. Just write the HTML file and return the content.` : ''
+CRITICAL: Put the ENTIRE HTML in the "html" field of output_html. Do NOT just put the path. Do NOT stream it as text first.
+DO NOT attempt npm install, git push, or running a server.` : ''
 
   const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
 
@@ -338,22 +349,46 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
       send(`\n\`\`\`\n${out.slice(0, 2000)}\n\`\`\``)
       return out.slice(0, 4000)
 
+    } else if (name === 'output_html') {
+      const { writeFileSync, mkdirSync } = await import('fs')
+      const { dirname } = await import('path')
+      const htmlContent = input.html
+      if (!htmlContent) {
+        return `Error: output_html was called without the html content. The "html" field MUST contain the complete HTML document. Call output_html again with both path AND html fields populated.`
+      }
+      const resolvedPath = input.path.replace(/^~\//, home + '/').replace(/^~$/, home)
+      send(`\n\n📄 **Generating website** \`${input.path}\` (${htmlContent.length} chars)`)
+      try {
+        mkdirSync(dirname(resolvedPath), { recursive: true })
+        writeFileSync(resolvedPath, htmlContent, 'utf8')
+        send(`\n\n✅ Website written: ${input.path}`)
+        const escaped = Buffer.from(htmlContent).toString('base64')
+        send(`\n\n<!--PREVIEW_HTML:${escaped}-->`)
+        send(`\n\n<!--FILE_ENTRY:${JSON.stringify({ path: input.path, content: htmlContent.slice(0, 2400) })}-->`)
+        return `HTML website written to ${input.path} (${htmlContent.length} chars). Preview will display automatically.`
+      } catch (err) {
+        send(`\n\n❌ ${err.message}`)
+        return `Error: ${err.message}`
+      }
+
     } else if (name === 'write_document' || name === 'write_file') {
       const { writeFileSync, mkdirSync } = await import('fs')
       const { dirname } = await import('path')
       // Always resolve ~ to the writable home dir (which is /tmp on Vercel)
       const resolvedPath = input.path.replace(/^~\//, home + '/').replace(/^~$/, home)
+      if (!input.content) {
+        return `Error: write_file was called without content. You MUST include the full file content in the "content" parameter. Call write_file again with both path AND content.`
+      }
       send(`\n\n📄 **Writing** \`${input.path}\` (${(input.content || '').length} chars)`)
       try {
         mkdirSync(dirname(resolvedPath), { recursive: true })
         writeFileSync(resolvedPath, input.content, 'utf8')
         send(`\n\n✅ Written: ${input.path}`)
-        // If this is an HTML file, emit a preview marker so the client can show it
+        // If this is an HTML file, emit a preview marker
         if (input.path.endsWith('.html') && input.content) {
           const escaped = Buffer.from(input.content).toString('base64')
           send(`\n\n<!--PREVIEW_HTML:${escaped}-->`)
         }
-        // Emit a file entry marker for the terminal log
         send(`\n\n<!--FILE_ENTRY:${JSON.stringify({ path: input.path, content: (input.content || '').slice(0, 2400) })}-->`)
         return `Written: ${input.path} (${input.content.length} chars)`
       } catch (err) {
@@ -432,17 +467,22 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
           if (iter > 0) send('\n\n---\n\n')
 
           // NOTE: Anthropic API does not allow thinking + tool_choice:any/required together.
-          // For CTO agents we force a tool call for the first 5 iterations to ensure delegation happens.
-          // All subsequent turns use auto tool_choice so thinking can be on.
+          // For top agents (CTO/manager), force tool call for first 5 iters; thinking enabled after.
+          // For implementers (Backend Programmer etc.), ALWAYS disable thinking:
+          //   - Implementers just write code/HTML — thinking wastes max_tokens budget
+          //   - With thinking=8000 + max_tokens=16000, only 8000 tokens remain for HTML → truncated tool call → content=undefined
           const forceToolCall = isTopAgent && iter < 5
           const toolChoice = forceToolCall ? { type: 'any' } : { type: 'auto' }
-          const thinkingConfig = forceToolCall
+          const thinkingConfig = (!isTopAgent || forceToolCall)
             ? { type: 'disabled' }
             : { type: 'enabled', budget_tokens: 8000 }
 
+          // Implementers get more tokens for actual code/HTML output (no thinking overhead)
+          const maxTokens = isTopAgent ? 16000 : 32000
+
           const apiStream = anthropic.messages.stream({
             model: 'claude-opus-4-6',
-            max_tokens: 16000,
+            max_tokens: maxTokens,
             thinking: thinkingConfig,
             tools,
             tool_choice: toolChoice,
