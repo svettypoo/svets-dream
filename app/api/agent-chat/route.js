@@ -11,6 +11,8 @@ const MAX_ITERATIONS = 20 // max agentic loop turns per request
 export async function POST(req) {
   const { agent, messages, orgContext, rules } = await req.json()
 
+  const home = process.env.HOME || process.env.USERPROFILE || process.cwd()
+
   // Auth + budget check
   let userId = null
   try {
@@ -193,8 +195,6 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
     '/bin/bash',
     'bash',
   ].find(p => p && (p === 'bash' || existsSync(p))) || 'bash'
-
-  const home = process.env.HOME || process.env.USERPROFILE || process.cwd()
 
   function runBash(command, cwd) {
     return new Promise((resolve, reject) => {
