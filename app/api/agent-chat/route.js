@@ -389,12 +389,18 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
         for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
           if (iter > 0) send('\n\n---\n\n')
 
+          // Force top agents (CTO etc.) to always call a tool on the first turn
+          // so they always check VISION.md before responding with text
+          const toolChoice = (isTopAgent && iter === 0)
+            ? { type: 'any' }
+            : { type: 'auto' }
+
           const apiStream = anthropic.messages.stream({
             model: 'claude-opus-4-6',
             max_tokens: 16000,
             thinking: { type: 'enabled', budget_tokens: 8000 },
             tools,
-            tool_choice: { type: 'auto' },
+            tool_choice: toolChoice,
             system: systemPrompt,
             messages: loopMessages,
           })
@@ -413,7 +419,7 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
           const toolUseBlocks = finalMsg.content.filter(b => b.type === 'tool_use')
 
           // No tool calls = model is done
-          if (toolUseBlocks.length === 0 || finalMsg.stop_reason === 'end_turn') break
+          if (toolUseBlocks.length === 0) break
 
           // Preserve full response (including thinking blocks) in history
           loopMessages.push({ role: 'assistant', content: finalMsg.content })
