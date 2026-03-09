@@ -4,6 +4,7 @@ import { checkBudget, recordTransaction } from '@/lib/spend-tracker'
 import { spawn } from 'child_process'
 
 export const runtime = 'nodejs'
+export const maxDuration = 300  // 5 min — Vercel Pro limit for long agent chains
 const MAX_ITERATIONS = 20
 const MAX_DELEGATION_DEPTH = 2
 
@@ -85,8 +86,20 @@ export async function POST(req) {
 
   const implementerTools = [
     {
+      name: 'write_file',
+      description: 'Write any file to disk safely — use this instead of bash heredoc for HTML, CSS, JS, JSON, config files. Handles special characters without quoting issues.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path (e.g. ~/myproject/index.html)' },
+          content: { type: 'string', description: 'Full file content to write' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+    {
       name: 'run_bash',
-      description: 'Execute any shell command: write files, install packages, run servers, commit and push to GitHub, test code.',
+      description: 'Execute any shell command: install packages, run servers, commit and push to GitHub, test code. For writing file content use write_file instead.',
       input_schema: {
         type: 'object',
         properties: {
@@ -301,6 +314,21 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
         writeFileSync(resolvedPath, input.content, 'utf8')
         send(`\n\n✅ Written: ${input.path}`)
         return `Written: ${input.path}`
+      } catch (err) {
+        send(`\n\n❌ ${err.message}`)
+        return `Error: ${err.message}`
+      }
+
+    } else if (name === 'write_file') {
+      const { writeFileSync, mkdirSync } = await import('fs')
+      const { dirname } = await import('path')
+      const resolvedPath = input.path.replace(/^~/, home)
+      send(`\n\n📄 **Writing** \`${input.path}\` (${input.content.length} chars)`)
+      try {
+        mkdirSync(dirname(resolvedPath), { recursive: true })
+        writeFileSync(resolvedPath, input.content, 'utf8')
+        send(`\n\n✅ Written: ${input.path}`)
+        return `Written: ${input.path} (${input.content.length} chars)`
       } catch (err) {
         send(`\n\n❌ ${err.message}`)
         return `Error: ${err.message}`
