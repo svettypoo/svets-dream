@@ -1,13 +1,34 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
+import { createClient } from '@/lib/supabase'
 
 export default function AgentModal({ agent, orgData, rulesDescription, onClose }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [queued, setQueued] = useState([]) // messages queued while AI is responding
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const bottomRef = useRef(null)
   const abortRef = useRef(null)
+  const supabase = createClient()
+
+  // Load saved conversation on mount
+  useEffect(() => {
+    async function loadHistory() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setHistoryLoaded(true); return }
+      const agentId = agent.id || agent.label
+      const { data } = await supabase
+        .from('agent_conversations')
+        .select('messages')
+        .eq('agent_id', agentId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (data?.messages?.length) setMessages(data.messages)
+      setHistoryLoaded(true)
+    }
+    loadHistory()
+  }, [agent.id, agent.label])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -21,6 +42,20 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
       sendMessage(next)
     }
   }, [loading])
+
+  async function saveHistory(msgs) {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const agentId = agent.id || agent.label
+    await supabase.from('agent_conversations').upsert({
+      user_id: user.id,
+      agent_id: agentId,
+      agent_label: agent.label,
+      messages: msgs,
+      org_snapshot: orgData,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,agent_id' })
+  }
 
   function emit(type, text) {
     window.dispatchEvent(new CustomEvent('agentActivity', { detail: { agent: agent.label, type, text } }))
@@ -164,6 +199,9 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
       }
 
       emit('complete', `${agent.label} finished responding`)
+      // Save completed conversation
+      const finalMsgs = [...newMessages, { role: 'assistant', content: assistantText }]
+      saveHistory(finalMsgs).catch(() => {})
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
@@ -230,8 +268,22 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
               {queued.length} queued
             </div>
           )}
-          <button onClick={onClose} style={{
+          <button onClick={async () => {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) return
+            const agentId = agent.id || agent.label
+            await supabase.from('agent_conversations').delete()
+              .eq('user_id', user.id).eq('agent_id', agentId)
+            setMessages([])
+          }} title="Clear history" style={{
             marginLeft: 'auto', background: 'none', border: 'none',
+            cursor: 'pointer', fontSize: 11, color: '#475569', padding: '4px 8px',
+            borderRadius: 6, transition: 'color 0.15s',
+          }} onMouseOver={e => e.target.style.color='#f87171'} onMouseOut={e => e.target.style.color='#475569'}>
+            Clear
+          </button>
+          <button onClick={onClose} style={{
+            background: 'none', border: 'none',
             cursor: 'pointer', fontSize: 18, color: '#334155', padding: 4,
           }}>×</button>
         </div>
@@ -243,7 +295,12 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
           scrollbarWidth: 'none',
         }}>
           <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-          {messages.length === 0 && (
+          {!historyLoaded && (
+            <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 12, opacity: 0.5 }}>
+              Loading history...
+            </div>
+          )}
+          {historyLoaded && messages.length === 0 && (
             <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 13, lineHeight: 1.6 }}>
               <div style={{ fontSize: 28, marginBottom: 10, opacity: 0.5 }}>◈</div>
               <div style={{ fontWeight: 600, color: '#475569' }}>Talk to {agent.label}</div>
