@@ -11,7 +11,11 @@ const MAX_DELEGATION_DEPTH = 2
 export async function POST(req) {
   const { agent, messages, orgContext, rules, _delegationDepth = 0 } = await req.json()
 
-  const home = process.env.HOME || process.env.USERPROFILE || process.cwd()
+  // On Vercel serverless, HOME=/var/task which is read-only. Use /tmp for all writes.
+  const rawHome = process.env.HOME || process.env.USERPROFILE || process.cwd()
+  const isVercel = !!process.env.VERCEL
+  const home = isVercel ? '/tmp' : rawHome
+  const tmpDir = process.env.TEMP || process.env.TMP || '/tmp'
   const reqUrl = new URL(req.url)
   const origin = `${reqUrl.protocol}//${reqUrl.host}`
   const cookie = req.headers.get('cookie') || ''
@@ -160,11 +164,12 @@ YOUR WORKFLOW — EXECUTE IMMEDIATELY, NO GATES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 1 — Write a vision document immediately
 Call write_document to write ~/st-properties/VISION.md with a complete vision for the project.
+(Note: ~ maps to /tmp on the server, so this writes to /tmp/st-properties/VISION.md)
 Make confident decisions based on industry standards — do NOT ask the user for approval first.
 
 STEP 2 — Delegate to Backend Programmer immediately
 As soon as VISION.md is written, call delegate_task to the Backend Programmer.
-Tell them to generate a complete single-file static HTML website written to /tmp/st-properties/index.html.
+Tell them to generate a complete single-file static HTML website using write_file to ~/st-properties/index.html.
 Do NOT wait for user confirmation. Do NOT say "does this sound good?". Just delegate.
 
 STEP 3 — Report results
@@ -205,7 +210,8 @@ You are running on a serverless environment. npm, git, npx, node servers — NON
 You MUST generate websites as self-contained static HTML files.
 
 REQUIRED APPROACH:
-1. Call write_file with path="/tmp/st-properties/index.html" and content=<FULL HTML>
+1. Call write_file with path="~/st-properties/index.html" and content=<FULL HTML>
+   (Note: ~ maps to /tmp on this server — this is the only writable directory)
 2. The HTML must be a single file with ALL CSS embedded in <style> tags
 3. Use CDN links for any JS libraries (e.g. <script src="https://cdn.tailwindcss.com"></script>)
 4. Make it look professional and complete — hero section, navigation, services, contact, footer
@@ -238,7 +244,7 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
   function runBash(command, cwd) {
     return new Promise((resolve, reject) => {
       const child = spawn(BASH, ['-c', command], {
-        cwd: (cwd || home).replace(/^~/, home),
+        cwd: (cwd || home).replace(/^~\//, home + '/').replace(/^~$/, home),
         env: { ...process.env, FORCE_COLOR: '0' },
         timeout: 120000,
         shell: false,
@@ -335,7 +341,8 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
     } else if (name === 'write_document' || name === 'write_file') {
       const { writeFileSync, mkdirSync } = await import('fs')
       const { dirname } = await import('path')
-      const resolvedPath = input.path.replace(/^~/, home).replace(/^\/tmp/, process.env.TEMP || '/tmp')
+      // Always resolve ~ to the writable home dir (which is /tmp on Vercel)
+      const resolvedPath = input.path.replace(/^~\//, home + '/').replace(/^~$/, home)
       send(`\n\n📄 **Writing** \`${input.path}\` (${(input.content || '').length} chars)`)
       try {
         mkdirSync(dirname(resolvedPath), { recursive: true })
@@ -356,7 +363,7 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
 
     } else if (name === 'run_bash') {
       const cmd = input.command
-      const cwd = input.cwd ? input.cwd.replace(/^~/, home) : home
+      const cwd = input.cwd ? input.cwd.replace(/^~\//, home + '/').replace(/^~$/, home) : home
       send(`\n\n💻 **Running:** \`${cmd.slice(0, 100)}${cmd.length > 100 ? '...' : ''}\``)
       try {
         const r = await runBash(cmd, cwd)
