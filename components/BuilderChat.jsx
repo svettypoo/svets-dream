@@ -13,7 +13,6 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [currentOrg, setCurrentOrg] = useState(null)
   const bottomRef = useRef(null)
 
-  // Called by page.js after every org update with a screenshot assessment
   useImperativeHandle(ref, () => ({
     addScreenshotMessage({ screenshot, assessment, passed }) {
       setMessages(prev => [...prev, { role: 'assistant', content: assessment, screenshot, passed, isAssessment: true }])
@@ -56,50 +55,52 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   }
 
   return (
-    <div style={{ width: 360, minWidth: 320, display: 'flex', flexDirection: 'column', background: '#fff', borderRight: '1px solid #BAE6FD', height: '100%' }}>
+    <div style={{ width: 360, minWidth: 320, display: 'flex', flexDirection: 'column', background: '#070d1c', borderRight: '1px solid #0f172a', height: '100%' }}>
       {/* Header */}
-      <div style={{ padding: '20px', borderBottom: '1px solid #BAE6FD', background: 'linear-gradient(135deg, #0EA5E9, #6366F1)' }}>
-        <div style={{ color: '#fff', fontWeight: 800, fontSize: 18 }}>{"Svet's Dream"}</div>
-        <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 }}>AI Agent Corporate Structure</div>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #0f172a', background: 'rgba(99,102,241,0.08)' }}>
+        <div style={{ color: '#a78bfa', fontWeight: 800, fontSize: 17, letterSpacing: '-0.3px' }}>{"Svet's Dream"}</div>
+        <div style={{ color: '#475569', fontSize: 11, marginTop: 2, letterSpacing: 0.3 }}>AI Agent Corporate Structure</div>
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10, scrollbarWidth: 'none' }}>
+        <style>{`div::-webkit-scrollbar{display:none}`}</style>
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: m.role === 'user' ? 'row-reverse' : 'row' }}>
               {m.role === 'assistant' && (
                 <div style={{
-                  width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                  background: m.isAssessment ? (m.passed ? 'linear-gradient(135deg,#10B981,#059669)' : 'linear-gradient(135deg,#EF4444,#DC2626)') : 'linear-gradient(135deg,#0EA5E9,#6366F1)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700,
+                  width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                  background: m.isAssessment ? (m.passed ? 'linear-gradient(135deg,#10B981,#059669)' : 'linear-gradient(135deg,#EF4444,#DC2626)') : 'linear-gradient(135deg,#6366f1,#a78bfa)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700,
                 }}>
                   {m.isAssessment ? (m.passed ? '✓' : '✗') : 'S'}
                 </div>
               )}
               <div style={{
-                maxWidth: '82%', padding: '10px 13px', borderRadius: 12, fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
-                background: m.role === 'user' ? 'linear-gradient(135deg,#0EA5E9,#06B6D4)' : m.isAssessment ? (m.passed ? '#F0FDF4' : '#FEF2F2') : '#F1F5F9',
-                color: m.role === 'user' ? '#fff' : '#0F172A',
-                border: m.isAssessment ? `1px solid ${m.passed ? '#BBF7D0' : '#FECACA'}` : 'none',
-                borderBottomRightRadius: m.role === 'user' ? 2 : 12,
-                borderBottomLeftRadius: m.role === 'assistant' ? 2 : 12,
+                maxWidth: '82%', padding: '9px 13px', borderRadius: 10, fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                background: m.role === 'user'
+                  ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
+                  : m.isAssessment ? (m.passed ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)') : 'rgba(255,255,255,0.05)',
+                color: m.role === 'user' ? '#fff' : '#cbd5e1',
+                border: m.isAssessment ? `1px solid ${m.passed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` : '1px solid rgba(255,255,255,0.06)',
+                borderBottomRightRadius: m.role === 'user' ? 2 : 10,
+                borderBottomLeftRadius: m.role === 'assistant' ? 2 : 10,
               }}>
                 {m.isAssessment && (
-                  <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 4, color: m.passed ? '#059669' : '#DC2626', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <div style={{ fontWeight: 700, fontSize: 10, marginBottom: 4, color: m.passed ? '#10B981' : '#EF4444', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     {m.passed ? '✓ Visual Check Passed' : '✗ Visual Check Failed'}
                   </div>
                 )}
                 {m.content}
               </div>
             </div>
-            {/* Screenshot inline below the bubble */}
             {m.screenshot && (
-              <div style={{ maxWidth: '90%', marginTop: 8, marginLeft: 36 }}>
+              <div style={{ maxWidth: '90%', marginTop: 8, marginLeft: 34 }}>
                 <img
                   src={m.screenshot.startsWith('data:') ? m.screenshot : `data:image/png;base64,${m.screenshot}`}
-                  alt="Visual check screenshot"
-                  style={{ width: '100%', borderRadius: 8, border: `2px solid ${m.passed ? '#BBF7D0' : '#FECACA'}`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
+                  alt="Visual check"
+                  style={{ width: '100%', borderRadius: 6, border: `1px solid ${m.passed ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)'}` }}
                 />
               </div>
             )}
@@ -107,27 +108,40 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         ))}
         {loading && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#0EA5E9,#6366F1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700 }}>S</div>
-            <div style={{ padding: '10px 14px', borderRadius: 12, background: '#F1F5F9', fontSize: 13, color: '#94A3B8' }}>Building your org structure...</div>
+            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#a78bfa)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>S</div>
+            <div style={{ padding: '9px 13px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', fontSize: 13, color: '#475569' }}>Building org structure...</div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
       {/* Input */}
-      <div style={{ padding: '12px', borderTop: '1px solid #BAE6FD', background: '#F8FAFC' }}>
+      <div style={{ padding: '12px', borderTop: '1px solid #0f172a', background: '#070d1c' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <textarea
             value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             placeholder="Describe your organization..." disabled={loading} rows={3}
-            style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1.5px solid #BAE6FD', outline: 'none', fontSize: 13, resize: 'none', fontFamily: 'inherit', background: '#fff', lineHeight: 1.5 }}
-            onFocus={e => e.target.style.borderColor = '#0EA5E9'} onBlur={e => e.target.style.borderColor = '#BAE6FD'}
+            style={{
+              flex: 1, padding: '10px 12px', borderRadius: 10,
+              border: '1px solid #1e293b', outline: 'none', fontSize: 13,
+              resize: 'none', fontFamily: 'inherit', lineHeight: 1.5,
+              background: '#0d1526', color: '#e2e8f0',
+              transition: 'border-color 0.15s',
+            }}
+            onFocus={e => e.target.style.borderColor = '#6366f1'}
+            onBlur={e => e.target.style.borderColor = '#1e293b'}
           />
           <button onClick={send} disabled={loading || !input.trim()}
-            style={{ padding: '10px 14px', borderRadius: 10, border: 'none', background: loading || !input.trim() ? '#BAE6FD' : 'linear-gradient(135deg,#0EA5E9,#6366F1)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: loading || !input.trim() ? 'not-allowed' : 'pointer', alignSelf: 'flex-end' }}>↑</button>
+            style={{
+              padding: '10px 14px', borderRadius: 10, border: 'none',
+              background: loading || !input.trim() ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+              color: loading || !input.trim() ? '#334155' : '#fff',
+              fontWeight: 700, fontSize: 16, cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
+              alignSelf: 'flex-end', transition: 'all 0.15s',
+            }}>↑</button>
         </div>
-        <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 6, textAlign: 'center' }}>Enter to send · Shift+Enter for new line</div>
+        <div style={{ fontSize: 10, color: '#334155', marginTop: 6, textAlign: 'center' }}>Enter to send · Shift+Enter for new line</div>
       </div>
     </div>
   )

@@ -28,14 +28,15 @@ const TYPE_COLOR = {
 function StarField() {
   const stars = useRef([])
   if (stars.current.length === 0) {
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 160; i++) {
       stars.current.push({
         x: Math.random() * 100,
         y: Math.random() * 100,
-        size: Math.random() * 1.5 + 0.5,
-        opacity: Math.random() * 0.6 + 0.2,
-        delay: Math.random() * 4,
-        duration: Math.random() * 3 + 2,
+        size: Math.random() * 2 + 0.4,
+        opacity: Math.random() * 0.7 + 0.15,
+        delay: Math.random() * 6,
+        duration: Math.random() * 4 + 2,
+        color: i % 12 === 0 ? '#c4b5fd' : i % 8 === 0 ? '#93c5fd' : '#fff',
       })
     }
   }
@@ -44,9 +45,25 @@ function StarField() {
       <style>{`
         @keyframes twinkle {
           0%, 100% { opacity: var(--op); transform: scale(1); }
-          50% { opacity: calc(var(--op) * 0.3); transform: scale(0.7); }
+          50% { opacity: calc(var(--op) * 0.2); transform: scale(0.6); }
+        }
+        @keyframes moonGlow {
+          0%, 100% { box-shadow: 0 0 18px 6px rgba(196,181,253,0.25); }
+          50% { box-shadow: 0 0 28px 10px rgba(196,181,253,0.45); }
         }
       `}</style>
+      {/* Moon */}
+      <div style={{
+        position: 'absolute', top: 18, right: 18,
+        width: 28, height: 28, borderRadius: '50%',
+        background: 'radial-gradient(circle at 35% 35%, #f1f5f9, #c4b5fd)',
+        boxShadow: '0 0 18px 6px rgba(196,181,253,0.25)',
+        animation: 'moonGlow 4s ease-in-out infinite',
+      }}>
+        {/* Crater details */}
+        <div style={{ position:'absolute', top:7, left:9, width:5, height:5, borderRadius:'50%', background:'rgba(0,0,0,0.1)' }}/>
+        <div style={{ position:'absolute', top:14, left:5, width:3, height:3, borderRadius:'50%', background:'rgba(0,0,0,0.08)' }}/>
+      </div>
       {stars.current.map((s, i) => (
         <div key={i} style={{
           position: 'absolute',
@@ -55,7 +72,7 @@ function StarField() {
           width: s.size,
           height: s.size,
           borderRadius: '50%',
-          background: '#fff',
+          background: s.color,
           '--op': s.opacity,
           opacity: s.opacity,
           animation: `twinkle ${s.duration}s ${s.delay}s ease-in-out infinite`,

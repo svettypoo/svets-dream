@@ -92,10 +92,34 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick }
 
   if (!orgData?.nodes?.length) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#94A3B8' }}>
-        <div style={{ fontSize: 48 }}>🏢</div>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Describe your organization</div>
-        <div style={{ fontSize: 13 }}>Your agent corporate structure will appear here</div>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 20, background: '#070d1c' }}>
+        <style>{`
+          @keyframes nodeFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+          @keyframes linePulse { 0%,100%{opacity:0.2} 50%{opacity:0.6} }
+        `}</style>
+        {/* Abstract org chart SVG */}
+        <svg width="180" height="120" viewBox="0 0 180 120" fill="none">
+          {/* Lines */}
+          <line x1="90" y1="28" x2="40" y2="68" stroke="#6366f1" strokeWidth="1.5" style={{animation:'linePulse 2.5s ease-in-out infinite'}}/>
+          <line x1="90" y1="28" x2="90" y2="68" stroke="#6366f1" strokeWidth="1.5" style={{animation:'linePulse 2.5s 0.3s ease-in-out infinite'}}/>
+          <line x1="90" y1="28" x2="140" y2="68" stroke="#6366f1" strokeWidth="1.5" style={{animation:'linePulse 2.5s 0.6s ease-in-out infinite'}}/>
+          {/* Top node */}
+          <rect x="68" y="8" width="44" height="22" rx="6" fill="rgba(99,102,241,0.25)" stroke="#6366f1" strokeWidth="1.5" style={{animation:'nodeFloat 3s ease-in-out infinite'}}/>
+          <rect x="75" y="14" width="14" height="3" rx="1.5" fill="#a78bfa"/>
+          <rect x="75" y="20" width="22" height="2" rx="1" fill="rgba(167,139,250,0.4)"/>
+          {/* Bottom nodes */}
+          {[18,68,118].map((x, i) => (
+            <g key={i} style={{animation:`nodeFloat 3s ${i*0.4}s ease-in-out infinite`}}>
+              <rect x={x} y="68" width="44" height="22" rx="6" fill="rgba(99,102,241,0.12)" stroke="rgba(99,102,241,0.4)" strokeWidth="1"/>
+              <rect x={x+7} y="74" width="10" height="3" rx="1.5" fill="rgba(167,139,250,0.6)"/>
+              <rect x={x+7} y="80" width="18" height="2" rx="1" fill="rgba(167,139,250,0.25)"/>
+            </g>
+          ))}
+        </svg>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.2px' }}>Build your agent organization</div>
+          <div style={{ fontSize: 12, color: '#334155', marginTop: 5 }}>Describe your team structure in the chat</div>
+        </div>
       </div>
     )
   }
@@ -104,10 +128,10 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick }
     <div ref={containerRef} style={{ flex: 1, height: '100%' }}>
       <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.3} maxZoom={2}>
-        <Background color="#BAE6FD" gap={24} size={1} />
-        <Controls style={{ background: '#EFF6FF', border: '1px solid #BAE6FD' }} />
-        <MiniMap nodeColor={n => n.data?.nodeType === 'rules' ? '#1E293B' : '#0EA5E9'}
-          style={{ background: '#EFF6FF', border: '1px solid #BAE6FD' }} />
+        <Background color="#0f172a" gap={24} size={1} />
+        <Controls style={{ background: '#0d1526', border: '1px solid #1e293b' }} />
+        <MiniMap nodeColor={n => n.data?.nodeType === 'rules' ? '#334155' : '#6366f1'}
+          style={{ background: '#0d1526', border: '1px solid #1e293b' }} />
       </ReactFlow>
     </div>
   )

@@ -5,30 +5,60 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [queued, setQueued] = useState([]) // messages queued while AI is responding
   const bottomRef = useRef(null)
+  const abortRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Auto-send next queued message when AI finishes
+  useEffect(() => {
+    if (!loading && queued.length > 0) {
+      const [next, ...rest] = queued
+      setQueued(rest)
+      sendMessage(next)
+    }
+  }, [loading])
+
   function emit(type, text) {
     window.dispatchEvent(new CustomEvent('agentActivity', { detail: { agent: agent.label, type, text } }))
   }
 
-  async function send() {
-    if (!input.trim() || loading) return
-    const userMsg = { role: 'user', content: input.trim() }
-    const newMessages = [...messages, userMsg]
-    setMessages(newMessages)
-    emit('sent', input.trim().slice(0, 80))
-    setInput('')
+  function stop() {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
+    setLoading(false)
+    setQueued([])
+    emit('observe', 'Response stopped by user')
+    setMessages(prev => {
+      const last = prev[prev.length - 1]
+      if (last?.role === 'assistant') {
+        return [...prev.slice(0, -1), { ...last, content: last.content + '\n\n*(stopped)*' }]
+      }
+      return prev
+    })
+  }
+
+  async function sendMessage(text) {
+    const userMsg = { role: 'user', content: text }
+    const newMessages = [...messages.filter((_, i) => true), userMsg]
+    setMessages(prev => [...prev, userMsg])
+    emit('sent', text.slice(0, 80))
     setLoading(true)
     emit('thinking', `${agent.label} is thinking...`)
+
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       const res = await fetch('/api/agent-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           agent,
           messages: newMessages,
@@ -49,7 +79,6 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
         const chunk = decoder.decode(value, { stream: true })
         assistantText += chunk
 
-        // Emit activity events based on signals detected in stream
         if (chunk.includes('💻 **Running:**')) {
           const cmd = chunk.match(/`([^`]+)`/)
           emit('bash', cmd ? cmd[1] : 'Running bash command...')
@@ -71,79 +100,109 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
 
       emit('complete', `${agent.label} finished responding`)
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
-      emit('error', err.message)
+      if (err.name !== 'AbortError') {
+        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
+        emit('error', err.message)
+      }
     } finally {
+      abortRef.current = null
       setLoading(false)
+    }
+  }
+
+  function send() {
+    if (!input.trim()) return
+    const text = input.trim()
+    setInput('')
+    if (loading) {
+      // Queue it — will auto-send when current response finishes
+      setQueued(prev => [...prev, text])
+      emit('observe', `Message queued: ${text.slice(0, 40)}...`)
+    } else {
+      sendMessage(text)
     }
   }
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       zIndex: 1000, padding: 24,
+      backdropFilter: 'blur(4px)',
     }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{
-        background: '#fff', borderRadius: 16, width: '100%', maxWidth: 600,
+        background: '#080f20',
+        borderRadius: 16, width: '100%', maxWidth: 620,
         height: '80vh', display: 'flex', flexDirection: 'column',
-        boxShadow: '0 24px 80px rgba(14,165,233,0.3)',
-        border: '1px solid #BAE6FD', overflow: 'hidden',
+        boxShadow: '0 24px 80px rgba(99,102,241,0.25)',
+        border: '1px solid #1e293b', overflow: 'hidden',
       }}>
         {/* Header */}
         <div style={{
-          padding: '16px 20px', borderBottom: '1px solid #BAE6FD',
-          background: '#EFF6FF', display: 'flex', alignItems: 'center', gap: 12,
+          padding: '14px 18px', borderBottom: '1px solid #1e293b',
+          background: 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', gap: 12,
         }}>
           <div style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #0EA5E9, #6366F1)',
+            width: 38, height: 38, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #6366f1, #a78bfa)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontWeight: 700, fontSize: 16,
+            color: '#fff', fontWeight: 700, fontSize: 15,
           }}>
             {agent.label?.[0]}
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: '#0F172A' }}>{agent.label}</div>
-            <div style={{ fontSize: 12, color: '#64748B' }}>{agent.role}</div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>{agent.label}</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>{agent.role}</div>
           </div>
+          {loading && (
+            <div style={{ marginLeft: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1s ease-in-out infinite' }} />
+              <span style={{ fontSize: 11, color: '#6366f1' }}>thinking</span>
+            </div>
+          )}
+          {queued.length > 0 && (
+            <div style={{ fontSize: 10, color: '#475569', background: 'rgba(99,102,241,0.1)', padding: '2px 8px', borderRadius: 10 }}>
+              {queued.length} queued
+            </div>
+          )}
           <button onClick={onClose} style={{
             marginLeft: 'auto', background: 'none', border: 'none',
-            cursor: 'pointer', fontSize: 20, color: '#94A3B8', padding: 4,
+            cursor: 'pointer', fontSize: 18, color: '#334155', padding: 4,
           }}>×</button>
         </div>
 
         {/* Messages */}
         <div style={{
-          flex: 1, overflowY: 'auto', padding: '16px 20px',
-          display: 'flex', flexDirection: 'column', gap: 12,
+          flex: 1, overflowY: 'auto', padding: '14px 18px',
+          display: 'flex', flexDirection: 'column', gap: 10,
+          scrollbarWidth: 'none',
         }}>
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
           {messages.length === 0 && (
-            <div style={{
-              textAlign: 'center', color: '#94A3B8', marginTop: 40,
-              fontSize: 14, lineHeight: 1.6,
-            }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
-              <div style={{ fontWeight: 600, color: '#64748B' }}>Talk to {agent.label}</div>
-              <div style={{ marginTop: 8, fontSize: 13 }}>{agent.description}</div>
+            <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 13, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 28, marginBottom: 10, opacity: 0.5 }}>◈</div>
+              <div style={{ fontWeight: 600, color: '#475569' }}>Talk to {agent.label}</div>
+              <div style={{ marginTop: 6, fontSize: 12, maxWidth: 320, margin: '8px auto 0' }}>{agent.description}</div>
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} style={{
-              display: 'flex',
-              justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
-            }}>
+            <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
               <div style={{
-                maxWidth: '85%', padding: '10px 14px', borderRadius: 12,
-                fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                maxWidth: '87%', padding: '9px 13px', borderRadius: 10,
+                fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap',
                 background: m.role === 'user'
-                  ? 'linear-gradient(135deg, #0EA5E9, #06B6D4)'
-                  : '#F1F5F9',
-                color: m.role === 'user' ? '#fff' : '#0F172A',
-                borderBottomRightRadius: m.role === 'user' ? 2 : 12,
-                borderBottomLeftRadius: m.role === 'assistant' ? 2 : 12,
+                  ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+                  : 'rgba(255,255,255,0.04)',
+                color: m.role === 'user' ? '#fff' : '#cbd5e1',
+                border: m.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.07)',
+                borderBottomRightRadius: m.role === 'user' ? 2 : 10,
+                borderBottomLeftRadius: m.role === 'assistant' ? 2 : 10,
+                fontFamily: m.content?.includes('```') ? 'inherit' : 'inherit',
               }}>
-                {m.content || (loading && i === messages.length - 1 ? '...' : '')}
+                {m.content || (loading && i === messages.length - 1
+                  ? <span style={{ opacity: 0.4 }}>▋</span>
+                  : ''
+                )}
               </div>
             </div>
           ))}
@@ -151,37 +210,43 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
         </div>
 
         {/* Input */}
-        <div style={{
-          padding: '12px 16px', borderTop: '1px solid #BAE6FD',
-          background: '#F8FAFC', display: 'flex', gap: 8,
-        }}>
+        <div style={{ padding: '10px 14px', borderTop: '1px solid #1e293b', background: '#070d1c', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-            placeholder={`Message ${agent.label}...`}
-            disabled={loading}
+            placeholder={loading ? `Message ${agent.label} (will queue)...` : `Message ${agent.label}...`}
             style={{
               flex: 1, padding: '10px 14px', borderRadius: 10,
-              border: '1.5px solid #BAE6FD', outline: 'none',
-              fontSize: 14, background: '#fff',
+              border: '1px solid #1e293b', outline: 'none',
+              fontSize: 13, background: '#0d1526', color: '#e2e8f0',
               transition: 'border-color 0.15s',
             }}
-            onFocus={e => e.target.style.borderColor = '#0EA5E9'}
-            onBlur={e => e.target.style.borderColor = '#BAE6FD'}
+            onFocus={e => e.target.style.borderColor = '#6366f1'}
+            onBlur={e => e.target.style.borderColor = '#1e293b'}
           />
+          {loading && (
+            <button onClick={stop} style={{
+              padding: '10px 14px', borderRadius: 10, border: '1px solid rgba(239,68,68,0.3)',
+              background: 'rgba(239,68,68,0.1)', color: '#f87171',
+              fontWeight: 600, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              ■ Stop
+            </button>
+          )}
           <button
             onClick={send}
-            disabled={loading || !input.trim()}
+            disabled={!input.trim()}
             style={{
-              padding: '10px 18px', borderRadius: 10, border: 'none',
-              background: loading ? '#BAE6FD' : 'linear-gradient(135deg, #0EA5E9, #6366F1)',
-              color: '#fff', fontWeight: 600, fontSize: 14,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              transition: 'opacity 0.15s',
+              padding: '10px 16px', borderRadius: 10, border: 'none',
+              background: !input.trim() ? '#1e293b' : loading ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              color: !input.trim() ? '#334155' : '#fff',
+              fontWeight: 600, fontSize: 13,
+              cursor: !input.trim() ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s',
             }}
           >
-            {loading ? '...' : 'Send'}
+            {loading ? '↑ Queue' : 'Send'}
           </button>
         </div>
       </div>
