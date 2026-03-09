@@ -6,12 +6,16 @@ import { spawn } from 'child_process'
 
 export const runtime = 'nodejs'
 
-const MAX_ITERATIONS = 20 // max agentic loop turns per request
+const MAX_ITERATIONS = 20
+const MAX_DELEGATION_DEPTH = 2 // CTO → Agent → (sub-agent max)
 
 export async function POST(req) {
-  const { agent, messages, orgContext, rules } = await req.json()
+  const { agent, messages, orgContext, rules, _delegationDepth = 0 } = await req.json()
 
   const home = process.env.HOME || process.env.USERPROFILE || process.cwd()
+  const reqUrl = new URL(req.url)
+  const origin = `${reqUrl.protocol}//${reqUrl.host}`
+  const cookie = req.headers.get('cookie') || ''
 
   // Auth + budget check
   let userId = null
@@ -58,7 +62,7 @@ These tools are installed and ready. Use them directly — no setup needed.
   - Use __playwright__ signal to launch a browser, click, fill forms, take screenshots
   - Returns screenshots and DOM snapshots automatically
   - If you are the CTO or UI Agent: screenshot the live app AND competitor products (Linear, Notion, Asana, Height, Jira, Figma, etc.) to show side-by-side comparisons when proposing features
-  - Screenshots render as inline images in the chat — label them clearly: description: "Linear kanban board", "Our current board", "Notion database view" etc.
+  - Screenshots render as inline images in the chat — label them clearly
   - When proposing a feature to the user, ALWAYS include a screenshot of how the best competitor does it
 
 • File System
@@ -106,6 +110,37 @@ RULES:
   const isCTO = /cto|chief\s*tech/i.test(agent.role || '') || /cto/i.test(agent.label || '')
   const isUIAgent = /ui\s*agent|design|ux|front.?end/i.test(agent.role || '') || /ui\s*agent/i.test(agent.label || '')
 
+  // Build the team roster for the CTO's delegation reference
+  const teamRoster = orgContext?.nodes
+    ?.filter(n => n.id !== 'rules' && n.id !== (agent.id || agent.label))
+    ?.map(n => `  - "${n.label}" (id: "${n.id}") — ${n.role}: ${n.description?.split('\n')[0] || ''}`)
+    ?.join('\n') || ''
+
+  const delegationSection = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DELEGATING TO YOUR TEAM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You can assign a task to any team member using this signal:
+{"__delegate__": true, "to": "<agent label or id>", "task": "<full, specific task description>"}
+
+IMPORTANT — when you write the task, include:
+1. What to build/do (specific, not vague)
+2. What files to read first (VISION.md, BENCHMARK.md, existing code)
+3. What tools to use (bash, Playwright, git)
+4. What to produce and report back
+5. Any constraints from the Vision Doc that apply
+
+Your team:
+${teamRoster}
+
+WORKFLOW:
+- One delegation per response — wait for their output before continuing
+- Review their output through your role's filter: Does it meet the Vision? The benchmark?
+- If output is good → proceed to next delegation or report to user
+- If output is bad → give specific corrective feedback and re-delegate with corrections included
+- Maximum 2 levels of delegation depth — don't over-delegate
+- After all delegations complete → summarize for the user with what was built`
+
   const ctoExtra = isCTO ? `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -133,42 +168,46 @@ STEP 1 — CHECK FOR VISION DOCUMENT (every session start)
 STEP 2 — BUILD THE VISION (only if no VISION.md exists)
 Have a real conversation with the user — ask, listen, propose:
 - Ask: what are you building, who is it for, what's the core problem it solves?
-- Use Playwright to screenshot 2–3 competing products to show the user what exists:
-  {"__playwright__": true, "url": "https://linear.app", "description": "Linear — leading PM tool", "code": "await page.screenshot({path: '/tmp/linear.png'}); return 'screenshotted';"}
+- Use Playwright to screenshot 2–3 competing products to show the user what exists
 - Based on their answers + what you've seen, propose a concrete, specific vision — not vague, not generic
 - Iterate until you agree on every element
 - Write the final Vision Document:
-  {"__bash_exec__": true, "command": "mkdir -p ~/[project] && cat > ~/[project]/VISION.md << 'VEOF'\\n# Vision Document\\n## Product\\n[name and one-sentence description]\\n## Target Users\\n[specific user types]\\n## Core Problem We Solve\\n[specific problem]\\n## Key Features (priority order)\\n1. [feature]\\n2. [feature]\\n## Design Principles\\n[e.g. speed over features, minimal UI, mobile-first]\\n## Success Criteria\\n[measurable outcomes]\\nVEOF"}
-- Present it to the user and say: "Does this capture what you want to build? Reply YES to approve and I'll start the team."
-- Do NOT move to development until the user says YES.
+  {"__bash_exec__": true, "command": "mkdir -p ~/[project] && cat > ~/[project]/VISION.md << 'VEOF'\\n# Vision Document\\n## Product\\n[name]\\n## Target Users\\n[specific users]\\n## Core Problem\\n[specific problem]\\n## Key Features (priority order)\\n1. [feature]\\n## Design Principles\\n[principles]\\n## Success Criteria\\n[measurable outcomes]\\nVEOF"}
+- Present it and say: "Does this capture what you want to build? Reply YES to approve and I'll start the team."
+- Do NOT start building until the user says YES.
 
-STEP 3 — ONGOING GUARDIANSHIP
-- Every decision from UI Agent / Auditor / Backend Programmer comes to you first
-- Resolve within the vision if you can — but if a decision is close, borderline, or could reasonably go either way, escalate to the user. Don't make the call yourself when the user would want a say.
-- When you bring something to the user: give full context + your lean/recommendation + a specific YES/NO or choice question. Never open-ended.
-- Be concise — the user sees only what you surface. Don't forward noise. But don't hide close calls either.
+STEP 3 — ORCHESTRATE THE TEAM (after Vision approved)
+Once vision is approved, break it into milestones. For each milestone:
+1. Delegate design to UI Agent: "Read VISION.md and design [feature]. Screenshot how [competitor] does it."
+2. Review UI Agent's output — approve or correct
+3. Delegate implementation to Backend Programmer: "Implement exactly as UI Agent specified above: [paste specs]"
+4. Delegate testing to Auditor: "Test [feature] — every user interaction including edge cases"
+5. If Security Agent exists: delegate security audit when build is complete
+6. Review all outputs → record milestone as complete → demo to user
 
-STEP 4 — MARKET BENCHMARK (permanent, runs in parallel)
-- Maintain ~/[project]/BENCHMARK.md: Feature | Best-in-class product | Our status | Priority
-- Screenshot competitors and embed images directly in your messages when proposing features
-- Before approving any UI Agent design: compare against benchmark AND vision
-- Specific feedback only: "Linear's kanban has drag-to-reorder — ours doesn't. Redesign." Not: "make it better"
-- After 2 rounds of disagreement with UI Agent: surface to user with both positions` : ''
+STEP 4 — QUALITY GATE (permanent)
+- Every delegation output must pass the Vision Document before you accept it
+- Every design must beat or match the benchmark (Linear, Notion, Figma, etc.)
+- If anything is below standard: say exactly what's wrong and re-delegate with specific corrections
+- After 2 failed corrections: bring the specific decision to the user with both positions
+
+${delegationSection}` : delegationSection
 
   const uiAgentExtra = isUIAgent ? `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR CORE WORKFLOW AS UI AGENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Read VISION.md and BENCHMARK.md before designing anything — every design decision must serve both
-2. For each feature: identify the TOP 3 most common user interactions. The most common one is THE DEFAULT — make it large, prominent, and impossible to miss. Less-common paths must still be reachable but can be visually secondary. Document your reasoning.
-3. Design in full detail (layout, colors, typography, components, interactions, edge cases)
-4. Take Playwright screenshots of how the best competitor implements this feature
-5. Present design + competitor screenshots to CTO for approval — be specific, not vague
-6. Only after CTO approval: write precise implementation specs for Backend Programmer
-7. Never contact the user directly — all escalations go to CTO
-8. After Backend Programmer implements: screenshot live result, send to CTO for final review
-9. When Auditor challenges your visibility trade-offs: defend your position with specific reasoning. If you agree they have a point, update the design. If you disagree after two rounds, escalate to CTO with both positions.` : ''
+You see every task through a design lens: Is this the best possible UX for the user? Does it beat competitors?
+
+1. Start every task by reading VISION.md and BENCHMARK.md (if they exist)
+2. For each feature: identify the TOP 3 most common user interactions. Make the most common one THE DEFAULT — large, prominent, impossible to miss.
+3. Screenshot how the best competitor implements this exact feature using Playwright
+4. Design in full detail: layout, colors, typography, component specs, interaction states, edge cases
+5. Present design + competitor screenshots — be specific about every element
+6. Write precise implementation specs for Backend Programmer (exact CSS, component structure, API shape)
+7. Never contact the user directly — report to CTO
+8. After Backend implements: screenshot the live result, compare against your design, report gaps to CTO` : ''
 
   const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
 
@@ -176,9 +215,9 @@ Your capabilities and responsibilities:
 ${agent.description}
 ${ctoExtra}${uiAgentExtra}
 
-You operate within an AI corporate structure. You are fully autonomous.
+You operate within an AI corporate structure. You are fully autonomous. Apply your role's specific expertise and judgment to every task — you are not a generic assistant, you are a specialist.
 
-Organizational context:
+Organizational context (your full team):
 ${orgContext ? JSON.stringify(orgContext, null, 2) : 'You are part of an AI agent organization.'}
 ${toolsSection}
 ${rulesText}
@@ -187,7 +226,6 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
 
   const encoder = new TextEncoder()
 
-  // Resolve bash path
   const { existsSync } = await import('fs')
   const BASH = [
     process.env.SHELL,
@@ -213,7 +251,7 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
   }
 
   function findSignals(text) {
-    const keys = ['__bash_exec__', '__vm_exec__', '__playwright__', '__walkthrough__']
+    const keys = ['__bash_exec__', '__vm_exec__', '__playwright__', '__walkthrough__', '__delegate__']
     const found = []
     for (const key of keys) {
       const startMarker = `{"${key}"`
@@ -221,7 +259,6 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
       while (true) {
         const idx = text.indexOf(startMarker, searchFrom)
         if (idx === -1) break
-        // Walk from idx tracking depth + string context to find the closing }
         let depth = 0, inString = false, escape = false, end = -1
         for (let i = idx; i < text.length; i++) {
           const ch = text[i]
@@ -250,12 +287,10 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
       const send = (text) => controller.enqueue(encoder.encode(text))
 
       try {
-        // Build conversation for the agentic loop
         const loopMessages = messages.map(m => ({ role: m.role, content: m.content }))
         let totalInputTokens = 0, totalOutputTokens = 0
 
         for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-          // ── Claude turn ──
           const apiStream = anthropic.messages.stream({
             model: 'claude-opus-4-6',
             max_tokens: 8192,
@@ -265,7 +300,6 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
           })
 
           let fullText = ''
-          // Add separator between iterations (except first)
           if (iter > 0) send('\n\n---\n\n')
 
           for await (const event of apiStream) {
@@ -279,11 +313,9 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
           totalInputTokens += finalMsg.usage?.input_tokens || 0
           totalOutputTokens += finalMsg.usage?.output_tokens || 0
 
-          // ── Find signals ──
           const signals = findSignals(fullText)
-          if (signals.length === 0) break // No commands — agent is done
+          if (signals.length === 0) break
 
-          // ── Execute signals ──
           let commandOutputSummary = ''
 
           for (const { key, signal } of signals) {
@@ -322,10 +354,9 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
               if (!signal.code) continue
               send(`\n\n🌐 **Browser:** ${signal.description || 'automating browser'}...`)
               try {
-                const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
                 const res = await fetch(`${origin}/api/playwright`, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Cookie: req.headers.get('cookie') || '' },
+                  headers: { 'Content-Type': 'application/json', Cookie: cookie },
                   body: JSON.stringify({ code: signal.code, url: signal.url, description: signal.description }),
                 })
                 const result = await res.json()
@@ -350,7 +381,6 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
             } else if (key === '__walkthrough__') {
               send('\n\n🎬 Recording walkthrough video...')
               try {
-                const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
                 const res = await fetch(`${origin}/api/walkthrough`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -359,10 +389,70 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
                 const result = await res.json()
                 if (result.videoUrl) send(`\n\n📹 **Walkthrough ready:** ${result.videoUrl}`)
               } catch {}
+
+            } else if (key === '__delegate__') {
+              // ── Inter-agent delegation ──
+              if (_delegationDepth >= MAX_DELEGATION_DEPTH) {
+                send(`\n\n⚠️ **Delegation depth limit reached** — cannot delegate further from this level.`)
+                commandOutputSummary += `\n\nDelegation blocked: max depth (${MAX_DELEGATION_DEPTH}) reached.`
+                continue
+              }
+
+              const targetId = signal.to
+              const targetAgent = orgContext?.nodes?.find(n =>
+                n.id === targetId ||
+                n.id?.toLowerCase() === targetId?.toLowerCase() ||
+                n.label?.toLowerCase() === targetId?.toLowerCase() ||
+                n.label?.toLowerCase().includes(targetId?.toLowerCase())
+              )
+
+              if (!targetAgent) {
+                send(`\n\n⚠️ **Delegation failed:** Agent "${targetId}" not found in org.`)
+                commandOutputSummary += `\n\nDelegation failed: "${targetId}" not found.`
+                continue
+              }
+
+              const taskText = signal.task || signal.message || ''
+              send(`\n\n${'─'.repeat(50)}\n🤝 **CTO → ${targetAgent.label}** (${targetAgent.role})\n${taskText.slice(0, 200)}${taskText.length > 200 ? '...' : ''}\n${'─'.repeat(50)}\n\n`)
+
+              // Dispatch agentStatus event hint (the UI listens for this via SSE or window events)
+              // We signal via a special marker that the client can parse
+              send(`\n<!--agent-active:${targetAgent.id}-->\n`)
+
+              let subAgentOutput = ''
+              try {
+                const delegateRes = await fetch(`${origin}/api/agent-chat`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Cookie: cookie },
+                  body: JSON.stringify({
+                    agent: targetAgent,
+                    messages: [{ role: 'user', content: taskText }],
+                    orgContext,
+                    rules,
+                    _delegationDepth: _delegationDepth + 1,
+                  }),
+                })
+
+                const reader = delegateRes.body.getReader()
+                const decoder = new TextDecoder()
+                while (true) {
+                  const { done, value } = await reader.read()
+                  if (done) break
+                  const chunk = decoder.decode(value, { stream: true })
+                  subAgentOutput += chunk
+                  send(chunk)
+                }
+              } catch (err) {
+                send(`\n\n❌ **Delegation Error:** ${err.message}`)
+                subAgentOutput = `Error: ${err.message}`
+              }
+
+              send(`\n\n<!--agent-idle:${targetAgent.id}-->\n`)
+              send(`\n\n${'─'.repeat(50)}\n✓ **${targetAgent.label} → CTO:** Task complete\n${'─'.repeat(50)}\n\n`)
+              commandOutputSummary += `\n\n**${targetAgent.label} output:**\n${subAgentOutput.slice(0, 4000)}`
             }
           }
 
-          // ── Feed results back into conversation for next iteration ──
           loopMessages.push({
             role: 'assistant',
             content: fullText + commandOutputSummary,
@@ -373,7 +463,6 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
           })
         }
 
-        // Record total token usage
         if (userId) {
           await recordTransaction({
             userId,

@@ -180,8 +180,10 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     }, { onConflict: 'user_id,agent_id' })
   }
 
-  function renderContent(text) {
-    if (!text) return null
+  function renderContent(rawText) {
+    if (!rawText) return null
+    // Strip internal signaling markers before display
+    const text = rawText.replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
     const parts = []
     const imgRe = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g
     let last = 0, m
@@ -206,7 +208,24 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type, data } }))
   }
 
+  // Parse <!--agent-active:id--> and <!--agent-idle:id--> markers from delegation stream
+  function parseDelegationMarkers(text, lastIdx) {
+    const slice = text.slice(lastIdx)
+    const activeRe = /<!--agent-active:([^-]+)-->/g
+    const idleRe = /<!--agent-idle:([^-]+)-->/g
+    let m
+    while ((m = activeRe.exec(slice)) !== null) {
+      window.dispatchEvent(new CustomEvent('agentStatus', { detail: { agentId: m[1].trim(), active: true } }))
+    }
+    while ((m = idleRe.exec(slice)) !== null) {
+      window.dispatchEvent(new CustomEvent('agentStatus', { detail: { agentId: m[1].trim(), active: false } }))
+    }
+  }
+
   function parseBuilderEventsFrom(text, lastIdx) {
+    // First parse delegation markers for gear spinning
+    parseDelegationMarkers(text, lastIdx)
+
     const slice = text.slice(lastIdx)
     const events = []
     let newIdx = lastIdx
