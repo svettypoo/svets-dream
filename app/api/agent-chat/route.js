@@ -506,6 +506,13 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
           // No tool calls = model is done
           if (toolUseBlocks.length === 0) break
 
+          // Context compaction: if history is growing large, keep only first message + last 8 pairs
+          // This prevents ballooning token costs across 20 iterations
+          if (loopMessages.length > 18) {
+            const firstMsg = loopMessages[0]
+            loopMessages = [firstMsg, ...loopMessages.slice(-16)]
+          }
+
           // Preserve full response (including thinking blocks) in history
           loopMessages.push({ role: 'assistant', content: finalMsg.content })
 
