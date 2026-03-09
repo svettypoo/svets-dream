@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react'
 import {
-  ReactFlow, Background, Controls, MiniMap,
+  ReactFlow, Background, Controls,
   useNodesState, useEdgesState, MarkerType,
   ReactFlowProvider, useReactFlow,
 } from '@xyflow/react'
@@ -154,8 +154,6 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
         nodeTypes={nodeTypes} minZoom={0.2} maxZoom={2} defaultViewport={{ x: 0, y: 0, zoom: 0.7 }}>
         <Background color="#0f172a" gap={24} size={1} />
         <Controls style={{ background: '#0d1526', border: '1px solid #1e293b' }} />
-        <MiniMap nodeColor={n => n.data?.nodeType === 'rules' ? '#334155' : '#6366f1'}
-          style={{ background: '#0d1526', border: '1px solid #1e293b' }} />
       </ReactFlow>
     </div>
   )

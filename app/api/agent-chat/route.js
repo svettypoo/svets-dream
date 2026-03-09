@@ -76,7 +76,9 @@ These tools are installed and ready. Use them directly — no setup needed.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
 
-  const defaultRules = `- NEVER contact the user directly unless you are the CTO — all questions and escalations go to the CTO first
+  const defaultRules = `- If you are the CTO: NEVER write code or implement features yourself — ALWAYS use __delegate__ to assign work to your team
+- If you are NOT the CTO: do the work yourself using __bash_exec__ and the other execution signals — DO NOT delegate further unless necessary
+- NEVER contact the user directly unless you are the CTO — all questions and escalations go to the CTO first
 - NEVER ask the user to go check something, verify something, or input something manually
 - NEVER ask the user to confirm an action before taking it
 - Act autonomously and report outcomes — never ask, always do
@@ -120,26 +122,32 @@ RULES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DELEGATING TO YOUR TEAM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You can assign a task to any team member using this signal:
+⚠️ RULE: Use __delegate__ for ALL implementation work. Do NOT do it yourself.
+
+Assign a task to a team member using this EXACT format (raw JSON, no markdown wrapping):
 {"__delegate__": true, "to": "<agent label or id>", "task": "<full, specific task description>"}
 
-IMPORTANT — when you write the task, include:
+IMPORTANT — the "task" must include:
 1. What to build/do (specific, not vague)
 2. What files to read first (VISION.md, BENCHMARK.md, existing code)
 3. What tools to use (bash, Playwright, git)
 4. What to produce and report back
 5. Any constraints from the Vision Doc that apply
 
-Your team:
+Available team members:
 ${teamRoster}
 
 WORKFLOW:
-- One delegation per response — wait for their output before continuing
+- Output the __delegate__ signal immediately — one per response
+- The system executes the delegation automatically and returns their output to you
 - Review their output through your role's filter: Does it meet the Vision? The benchmark?
 - If output is good → proceed to next delegation or report to user
 - If output is bad → give specific corrective feedback and re-delegate with corrections included
 - Maximum 2 levels of delegation depth — don't over-delegate
-- After all delegations complete → summarize for the user with what was built`
+- After all delegations complete → summarize for the user with what was built
+
+EXAMPLE of correct delegation (output exactly like this, nothing extra):
+{"__delegate__": true, "to": "Backend Developer", "task": "Read ~/myproject/VISION.md then implement the user authentication module. Use Node.js + Express. Write files to ~/myproject/src/auth/. Commit and push when done. Report back what was built."}`
 
   const ctoExtra = isCTO ? `
 
@@ -177,13 +185,20 @@ Have a real conversation with the user — ask, listen, propose:
 - Do NOT start building until the user says YES.
 
 STEP 3 — ORCHESTRATE THE TEAM (after Vision approved)
-Once vision is approved, break it into milestones. For each milestone:
+⚠️ CRITICAL RULE: You NEVER write code, CSS, HTML, or implement features yourself. EVER.
+You are a manager, not an implementer. All actual work — design, coding, testing — MUST be done via __delegate__.
+If you catch yourself writing code or implementation details, STOP and use __delegate__ instead.
+
+Once vision is approved, break it into milestones. For each milestone use __delegate__ in this order:
 1. Delegate design to UI Agent: "Read VISION.md and design [feature]. Screenshot how [competitor] does it."
-2. Review UI Agent's output — approve or correct
+2. Review UI Agent's output — approve or correct (still via delegation if corrections needed)
 3. Delegate implementation to Backend Programmer: "Implement exactly as UI Agent specified above: [paste specs]"
-4. Delegate testing to Auditor: "Test [feature] — every user interaction including edge cases"
+4. Delegate testing to Auditor/QA: "Test [feature] — every user interaction including edge cases"
 5. If Security Agent exists: delegate security audit when build is complete
 6. Review all outputs → record milestone as complete → demo to user
+
+CRITICAL: Use __delegate__ IMMEDIATELY when you have a task for a team member.
+Do NOT describe what you will delegate — just output the signal and let them work.
 
 STEP 4 — QUALITY GATE (permanent)
 - Every delegation output must pass the Vision Document before you accept it
@@ -287,7 +302,23 @@ Respond in character as ${agent.label}. Be direct, decisive, and specific. No he
       const send = (text) => controller.enqueue(encoder.encode(text))
 
       try {
-        const loopMessages = messages.map(m => ({ role: m.role, content: m.content }))
+        // Normalize messages: strip leading assistant messages (API requires first msg = user)
+        let loopMessages = messages.map(m => ({ role: m.role, content: m.content }))
+        while (loopMessages.length > 0 && loopMessages[0].role !== 'user') {
+          loopMessages.shift()
+        }
+        // Ensure messages alternate correctly (no two same roles in a row)
+        const normalized = []
+        for (const msg of loopMessages) {
+          const last = normalized[normalized.length - 1]
+          if (last && last.role === msg.role) {
+            // Merge consecutive same-role messages
+            last.content += '\n\n' + msg.content
+          } else {
+            normalized.push({ ...msg })
+          }
+        }
+        loopMessages = normalized
         let totalInputTokens = 0, totalOutputTokens = 0
 
         for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
