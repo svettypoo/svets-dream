@@ -304,26 +304,11 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
       send(`\n\`\`\`\n${out.slice(0, 2000)}\n\`\`\``)
       return out.slice(0, 4000)
 
-    } else if (name === 'write_document') {
+    } else if (name === 'write_document' || name === 'write_file') {
       const { writeFileSync, mkdirSync } = await import('fs')
       const { dirname } = await import('path')
       const resolvedPath = input.path.replace(/^~/, home)
-      send(`\n\n📄 **Writing** \`${input.path}\``)
-      try {
-        mkdirSync(dirname(resolvedPath), { recursive: true })
-        writeFileSync(resolvedPath, input.content, 'utf8')
-        send(`\n\n✅ Written: ${input.path}`)
-        return `Written: ${input.path}`
-      } catch (err) {
-        send(`\n\n❌ ${err.message}`)
-        return `Error: ${err.message}`
-      }
-
-    } else if (name === 'write_file') {
-      const { writeFileSync, mkdirSync } = await import('fs')
-      const { dirname } = await import('path')
-      const resolvedPath = input.path.replace(/^~/, home)
-      send(`\n\n📄 **Writing** \`${input.path}\` (${input.content.length} chars)`)
+      send(`\n\n📄 **Writing** \`${input.path}\` (${(input.content || '').length} chars)`)
       try {
         mkdirSync(dirname(resolvedPath), { recursive: true })
         writeFileSync(resolvedPath, input.content, 'utf8')
