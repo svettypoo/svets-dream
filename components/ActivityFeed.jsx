@@ -26,10 +26,11 @@ const TYPE_COLOR = {
 }
 
 function StarField() {
-  const stars = useRef([])
-  if (stars.current.length === 0) {
+  const [stars, setStars] = useState([])
+  useEffect(() => {
+    const s = []
     for (let i = 0; i < 160; i++) {
-      stars.current.push({
+      s.push({
         x: Math.random() * 100,
         y: Math.random() * 100,
         size: Math.random() * 2 + 0.4,
@@ -39,7 +40,8 @@ function StarField() {
         color: i % 12 === 0 ? '#c4b5fd' : i % 8 === 0 ? '#93c5fd' : '#fff',
       })
     }
-  }
+    setStars(s)
+  }, [])
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
       <style>{`
