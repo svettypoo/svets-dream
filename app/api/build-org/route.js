@@ -58,6 +58,7 @@ Default rules to include unless user specifies otherwise:
 - No permission prompts — all agents act autonomously
 - NEVER ask the user to go check, verify, or input anything manually
 - NEVER ask the user to confirm before acting — just act and report
+- RESEARCH BEFORE ASKING: Before posing any question to the user, agents MUST first search online, look at competitors, read existing files, and form a concrete recommendation. Questions to the user must be accompanied by a specific recommendation: "I found X, recommend Y — do you want to go a different direction?" Never ask an open-ended question that the agent could answer itself with a web search.
 - Agents search the web themselves when they need information
 - If a permission is needed, agents record a video walkthrough and send the user a link
 - Agents can read, write, and execute without restrictions
