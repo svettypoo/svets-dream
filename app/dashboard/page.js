@@ -116,10 +116,13 @@ function TabStrip({ tabs, activeTabId, onSelect, onAdd, onRename, onClose }) {
 }
 
 export default function Dashboard() {
-  const [tabs, setTabs] = useState(() => [{ id: 1, name: 'Project 1', orgData: getDefaultOrg(), builderActive: false }])
+  const [tabs, setTabs] = useState([{ id: 1, name: 'Project 1', orgData: null, builderActive: false }])
   const [activeTabId, setActiveTabId] = useState(1)
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [user, setUser] = useState(null)
+  const [introNodeIds, setIntroNodeIds] = useState(new Set())
+  const [agentChats, setAgentChats] = useState({}) // nodeId → message string
+  const revealTimersRef = useRef([])
   const chartRef = useRef(null)
   const chatRef = useRef(null)
   const router = useRouter()
@@ -150,7 +153,7 @@ export default function Dashboard() {
   function addTab() {
     const id = nextTabId++
     const name = `Project ${id}`
-    setTabs(prev => [...prev, { id, name, orgData: getDefaultOrg(), builderActive: false }])
+    setTabs(prev => [...prev, { id, name, orgData: null, builderActive: false }])
     setActiveTabId(id)
     setSelectedAgent(null)
   }
@@ -176,29 +179,103 @@ export default function Dashboard() {
   const rulesNode = activeTab?.orgData?.nodes?.find(n => n.id === 'rules')
   const rulesDescription = rulesNode?.description
 
-  const handleOrgUpdate = useCallback(async (newOrg) => {
-    updateTab(activeTabId, { orgData: newOrg })
-    await new Promise(r => setTimeout(r, 1200))
-    try {
-      const dataUrl = await chartRef.current?.screenshot()
-      if (!dataUrl) return
-      const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
-      const res = await fetch('/api/assess', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: base64,
-          context: `Org has ${newOrg.nodes?.length} nodes including ${newOrg.nodes?.filter(n => n.id !== 'rules').map(n => n.label).join(', ')}`,
-          question: 'Does this AI agent org chart look correct and complete? Check all nodes are visible, connections make sense, and the Rules node is present.',
-        }),
-      })
-      const result = await res.json()
-      chatRef.current?.addScreenshotMessage({
-        screenshot: dataUrl,
-        assessment: result.assessment,
-        passed: result.passed,
-      })
-    } catch {}
+  function buildChatScript(nodes) {
+    const ids = new Set(nodes.map(n => n.id))
+    // Pick the top-level agent (non-rules, level 0)
+    const top = nodes.find(n => n.id !== 'rules' && (n.level ?? 0) === 0)
+    const topId = top?.id || null
+    // Build role map
+    const byId = Object.fromEntries(nodes.map(n => [n.id, n]))
+    const level1 = nodes.filter(n => n.id !== 'rules' && n.level === 1)
+    const level2 = nodes.filter(n => n.id !== 'rules' && n.level === 2)
+
+    const seq = []
+    let delay = 0
+    const add = (nodeId, message) => {
+      if (ids.has(nodeId)) { seq.push({ nodeId, message, delay }); delay += 3800 }
+    }
+
+    if (topId) add(topId, 'Team — stand by. New project incoming.')
+    if (level1[0]) add(level1[0].id, `Ready. Waiting on ${top?.label || 'lead'} direction.`)
+    if (topId) add(topId, 'Vision doc first. No code until I approve the spec.')
+    if (level2[0]) add(level2[0].id, 'Standing by. Tell me what to build.')
+    if (level1[0]) add(level1[0].id, 'Pulling competitor screenshots now.')
+    if (topId) add(topId, 'Show me Linear and Notion side-by-side. Then propose.')
+    return seq
+  }
+
+  const handleOrgUpdate = useCallback((newOrg) => {
+    if (!newOrg?.nodes?.length) return
+
+    // Clear any in-progress reveal
+    revealTimersRef.current.forEach(clearTimeout)
+    revealTimersRef.current = []
+
+    // Sort nodes: top-level (no parent) first, then by level
+    const sorted = [...newOrg.nodes].sort((a, b) => {
+      if (a.id === 'rules') return 1
+      if (b.id === 'rules') return -1
+      return (a.level ?? 0) - (b.level ?? 0)
+    })
+
+    // Start with empty org
+    const tabId = activeTabId
+    setTabs(prev => prev.map(t => t.id === tabId ? { ...t, orgData: { ...newOrg, nodes: [] } } : t))
+
+    // Reveal one by one
+    sorted.forEach((node, i) => {
+      const t = setTimeout(() => {
+        setTabs(prev => prev.map(t => {
+          if (t.id !== tabId) return t
+          const existing = t.orgData?.nodes || []
+          if (existing.find(n => n.id === node.id)) return t
+          return { ...t, orgData: { ...newOrg, nodes: [...existing, node] } }
+        }))
+        // Mark as new for speech bubble
+        setIntroNodeIds(prev => new Set([...prev, node.id]))
+        const clearT = setTimeout(() => {
+          setIntroNodeIds(prev => { const n = new Set(prev); n.delete(node.id); return n })
+        }, 5000)
+        revealTimersRef.current.push(clearT)
+      }, i * 750)
+      revealTimersRef.current.push(t)
+    })
+
+    // After all revealed, fire inter-agent chatter
+    const chatDelay = sorted.length * 750 + 800
+    const chatScript = buildChatScript(newOrg.nodes)
+    chatScript.forEach(({ nodeId, message, delay }) => {
+      const t = setTimeout(() => {
+        setAgentChats(prev => ({ ...prev, [nodeId]: message }))
+        const clearT = setTimeout(() => {
+          setAgentChats(prev => { const n = { ...prev }; delete n[nodeId]; return n })
+        }, 3500)
+        revealTimersRef.current.push(clearT)
+      }, chatDelay + delay)
+      revealTimersRef.current.push(t)
+    })
+
+    // After all revealed, take screenshot
+    const screenshotDelay = sorted.length * 750 + 1500
+    const screenshotT = setTimeout(async () => {
+      try {
+        const dataUrl = await chartRef.current?.screenshot()
+        if (!dataUrl) return
+        const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
+        const res = await fetch('/api/assess', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: base64,
+            context: `Org has ${newOrg.nodes?.length} nodes including ${newOrg.nodes?.filter(n => n.id !== 'rules').map(n => n.label).join(', ')}`,
+            question: 'Does this AI agent org chart look correct and complete? Check all nodes are visible, connections make sense, and the Rules node is present.',
+          }),
+        })
+        const result = await res.json()
+        chatRef.current?.addScreenshotMessage({ screenshot: dataUrl, assessment: result.assessment, passed: result.passed })
+      } catch {}
+    }, screenshotDelay)
+    revealTimersRef.current.push(screenshotT)
   }, [activeTabId])
 
   async function handleSignOut() {
@@ -262,7 +339,7 @@ export default function Dashboard() {
               <span style={{ marginLeft: 'auto', fontSize: 11, color: '#a78bfa', background: '#a78bfa15', padding: '3px 10px', borderRadius: 20, fontWeight: 600 }}>Live</span>
             )}
           </div>
-          <OrgChart ref={chartRef} orgData={activeTab?.orgData} onNodeClick={setSelectedAgent} />
+          <OrgChart ref={chartRef} orgData={activeTab?.orgData} onNodeClick={setSelectedAgent} introNodeIds={introNodeIds} agentChats={agentChats} />
         </div>
 
         {/* Build Preview — slides in when agents start executing */}

@@ -57,7 +57,7 @@ function layoutNodes(rawNodes) {
   return { nodes: positioned, edges }
 }
 
-const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick }, ref) {
+const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, introNodeIds = new Set(), agentChats = {} }, ref) {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const containerRef = useRef(null)
@@ -79,6 +79,8 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick }
       ...n,
       data: {
         ...n.data,
+        isNew: introNodeIds.has(n.data.nodeId),
+        chatMessage: agentChats[n.data.nodeId] || null,
         onClick: n.data.nodeType !== 'rules'
           ? () => onNodeClick(orgData.nodes.find(raw => raw.id === n.data.nodeId))
           : undefined,
@@ -86,7 +88,7 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick }
     }))
     setNodes(withClick)
     setEdges(edged)
-  }, [orgData])
+  }, [orgData, introNodeIds, agentChats])
 
   const nodeTypes = useMemo(() => NODE_TYPES, [])
 
@@ -137,10 +139,10 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick }
   )
 })
 
-const OrgChart = forwardRef(function OrgChart(props, ref) {
+const OrgChart = forwardRef(function OrgChart({ introNodeIds, agentChats, ...props }, ref) {
   return (
     <ReactFlowProvider>
-      <OrgChartInner {...props} ref={ref} />
+      <OrgChartInner {...props} introNodeIds={introNodeIds} agentChats={agentChats} ref={ref} />
     </ReactFlowProvider>
   )
 })
