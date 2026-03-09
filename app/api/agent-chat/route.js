@@ -156,30 +156,25 @@ RIGHT: "I searched for S&T Properties branding online. [Result of search]. Based
 Never ask an open-ended question the internet could answer.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-YOUR WORKFLOW
+YOUR WORKFLOW — EXECUTE IMMEDIATELY, NO GATES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 1 — Check for VISION.md (every session start)
-Call read_files: "ls ~/*/VISION.md 2>/dev/null || echo NO_VISION"
-→ If NO_VISION: go to STEP 2.
-→ If found: read it, greet user with status, ask what to focus on.
+STEP 1 — Write a vision document immediately
+Call write_document to write ~/st-properties/VISION.md with a complete vision for the project.
+Make confident decisions based on industry standards — do NOT ask the user for approval first.
 
-STEP 2 — Build the Vision (only if no VISION.md)
-- Research the space FIRST: delegate to UI Agent to screenshot top 3 competitors using run_browser
-- Based on your research, PROPOSE a complete vision (don't ask open questions)
-- If you need a preference decision from the user, give them 2–3 specific options with your recommendation
-- Write the agreed vision with write_document to ~/[project]/VISION.md
-- Say: "Does this capture it? Reply YES to start the team."
-- DO NOT start building until user says YES.
+STEP 2 — Delegate to Backend Programmer immediately
+As soon as VISION.md is written, call delegate_task to the Backend Programmer.
+Tell them to generate a complete single-file static HTML website written to /tmp/st-properties/index.html.
+Do NOT wait for user confirmation. Do NOT say "does this sound good?". Just delegate.
 
-STEP 3 — Orchestrate (after Vision approved)
-You NEVER implement. All work goes through delegate_task.
-Order: UI Agent (design) → Backend Programmer (implement) → Auditor (test) → Security Agent (audit if exists)
-Review each output: pass the Vision? Beat the benchmark? If not, re-delegate with specific corrections.
+STEP 3 — Report results
+After the Backend Programmer completes, tell the user what was built. The preview will show automatically.
 
-STEP 4 — Quality Gate (always)
-Every output must pass the Vision. Every design must match or beat the best competitor.
-If anything is below standard: say exactly what's wrong, re-delegate with corrections.
-After 2 failed corrections: bring the decision to the user with both positions.` : ''
+CRITICAL RULES:
+- You MUST call delegate_task within the first 3 tool calls. No exceptions.
+- You NEVER implement code yourself — always use delegate_task.
+- NEVER ask the user for permission to proceed. Just proceed.
+- NEVER say "shall I proceed?" or "does this sound good?" — just do it.` : ''
 
   const uiWorkflow = isUIAgent ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -197,12 +192,29 @@ YOUR WORKFLOW AS UI AGENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Use run_bash for ALL file operations, installs, tests, commits
-- Use run_browser for screenshots and browser testing
+- Use write_file to create HTML/CSS/JS files (no npm, no git needed)
+- Use run_bash only for simple operations like mkdir, ls, cat (no npm/git/npx — not available)
 - NEVER contact the user directly — report results back to the CTO
-- ALWAYS commit and push to GitHub when done: git add -A && git commit -m "..." && git push
 - Keep going until the task is FULLY complete — do not stop after one step
-- Home directory: ${home}` : ''
+- Home directory: ${home}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STATIC HTML GENERATION (MANDATORY APPROACH)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You are running on a serverless environment. npm, git, npx, node servers — NONE of these are available.
+You MUST generate websites as self-contained static HTML files.
+
+REQUIRED APPROACH:
+1. Call write_file with path="/tmp/st-properties/index.html" and content=<FULL HTML>
+2. The HTML must be a single file with ALL CSS embedded in <style> tags
+3. Use CDN links for any JS libraries (e.g. <script src="https://cdn.tailwindcss.com"></script>)
+4. Make it look professional and complete — hero section, navigation, services, contact, footer
+5. After writing the file, include the full HTML content in your response wrapped in:
+   <!--PREVIEW_HTML_START-->
+   <full html here>
+   <!--PREVIEW_HTML_END-->
+
+DO NOT attempt npm install, git push, or running a server. Just write the HTML file and return the content.` : ''
 
   const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
 
@@ -323,12 +335,19 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
     } else if (name === 'write_document' || name === 'write_file') {
       const { writeFileSync, mkdirSync } = await import('fs')
       const { dirname } = await import('path')
-      const resolvedPath = input.path.replace(/^~/, home)
+      const resolvedPath = input.path.replace(/^~/, home).replace(/^\/tmp/, process.env.TEMP || '/tmp')
       send(`\n\n📄 **Writing** \`${input.path}\` (${(input.content || '').length} chars)`)
       try {
         mkdirSync(dirname(resolvedPath), { recursive: true })
         writeFileSync(resolvedPath, input.content, 'utf8')
         send(`\n\n✅ Written: ${input.path}`)
+        // If this is an HTML file, emit a preview marker so the client can show it
+        if (input.path.endsWith('.html') && input.content) {
+          const escaped = Buffer.from(input.content).toString('base64')
+          send(`\n\n<!--PREVIEW_HTML:${escaped}-->`)
+        }
+        // Emit a file entry marker for the terminal log
+        send(`\n\n<!--FILE_ENTRY:${JSON.stringify({ path: input.path, content: (input.content || '').slice(0, 2400) })}-->`)
         return `Written: ${input.path} (${input.content.length} chars)`
       } catch (err) {
         send(`\n\n❌ ${err.message}`)
@@ -406,9 +425,9 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
           if (iter > 0) send('\n\n---\n\n')
 
           // NOTE: Anthropic API does not allow thinking + tool_choice:any/required together.
-          // On first turn for top agents we force a tool call (any) — so thinking must be off.
+          // For CTO agents we force a tool call for the first 5 iterations to ensure delegation happens.
           // All subsequent turns use auto tool_choice so thinking can be on.
-          const forceToolCall = isTopAgent && iter === 0
+          const forceToolCall = isTopAgent && iter < 5
           const toolChoice = forceToolCall ? { type: 'any' } : { type: 'auto' }
           const thinkingConfig = forceToolCall
             ? { type: 'disabled' }

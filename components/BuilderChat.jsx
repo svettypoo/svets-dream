@@ -242,8 +242,33 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             const m = chunk.match(/🤝 \*\*([^→]+)→ ([^*]+)\*\*/)
             setThinkingLabel(m ? `Delegating to ${m[2].trim()}...` : 'Delegating task...')
           }
-          // Strip markers before displaying
-          const display = assistantText.replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
+          // Parse HTML preview markers — base64 encoded HTML content
+          const htmlMatches = assistantText.match(/<!--PREVIEW_HTML:([A-Za-z0-9+/=]+)-->/g)
+          if (htmlMatches) {
+            for (const match of htmlMatches) {
+              const b64 = match.replace('<!--PREVIEW_HTML:', '').replace('-->', '')
+              try {
+                const html = atob(b64)
+                window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'html', data: { html } } }))
+              } catch {}
+            }
+          }
+          // Parse file entry markers
+          const fileMatches = assistantText.match(/<!--FILE_ENTRY:(\{[^>]+\})-->/g)
+          if (fileMatches) {
+            for (const match of fileMatches) {
+              const json = match.replace('<!--FILE_ENTRY:', '').replace('-->', '')
+              try {
+                const fileData = JSON.parse(json)
+                window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'file', data: fileData } }))
+              } catch {}
+            }
+          }
+          // Strip all markers before displaying
+          const display = assistantText
+            .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
+            .replace(/<!--PREVIEW_HTML:[A-Za-z0-9+/=]*-->/g, '')
+            .replace(/<!--FILE_ENTRY:\{[^>]*\}-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
         }
 
@@ -288,6 +313,13 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         const reply = parsed.message || '(no response)'
         dispatchActivity('CTO', 'sent', reply.slice(0, 120))
         setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+
+        // Auto-start building immediately after org is assembled — no need for user to say "yes"
+        if (parsed.org) {
+          setTimeout(() => {
+            sendText('Proceed now. Build immediately. Write the vision doc and delegate to the Backend Programmer right now. No questions.')
+          }, 1200)
+        }
       } catch (err) {
         dispatchActivity('CTO', 'error', err.message)
         setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])

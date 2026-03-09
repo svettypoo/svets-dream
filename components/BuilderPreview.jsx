@@ -5,6 +5,7 @@ export default function BuilderPreview({ visible }) {
   const [tab, setTab] = useState('terminal')
   const [entries, setEntries] = useState([])
   const [previewUrl, setPreviewUrl] = useState('')
+  const [previewHtml, setPreviewHtml] = useState(null)
   const [urlInput, setUrlInput] = useState('http://localhost:3000')
   const bottomRef = useRef(null)
   const entryIdRef = useRef(0)
@@ -20,6 +21,11 @@ export default function BuilderPreview({ visible }) {
       if (type === 'url') {
         setPreviewUrl(data.url)
         setUrlInput(data.url)
+        setTab('preview')
+      }
+      if (type === 'html' && data?.html) {
+        setPreviewHtml(data.html)
+        setTab('preview')
       }
     }
     window.addEventListener('builderUpdate', onBuild)
@@ -176,7 +182,7 @@ export default function BuilderPreview({ visible }) {
       {/* Preview tab */}
       {tab === 'preview' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid #1e293b', display: 'flex', gap: 6, flexShrink: 0 }}>
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid #1e293b', display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
             <input
               value={urlInput}
               onChange={e => setUrlInput(e.target.value)}
@@ -188,12 +194,26 @@ export default function BuilderPreview({ visible }) {
                 fontFamily: 'monospace', outline: 'none',
               }}
             />
-            <button onClick={() => setPreviewUrl(urlInput)} style={{
+            <button onClick={() => { setPreviewUrl(urlInput); setPreviewHtml(null) }} style={{
               padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
               background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 600,
             }}>Go</button>
+            {previewHtml && (
+              <button onClick={() => setPreviewHtml(null)} style={{
+                padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                background: '#334155', color: '#94a3b8', fontSize: 11,
+              }}>URL</button>
+            )}
           </div>
-          {previewUrl ? (
+          {previewHtml ? (
+            <iframe
+              key={previewHtml.slice(0, 40)}
+              srcDoc={previewHtml}
+              style={{ flex: 1, border: 'none', background: '#fff' }}
+              title="Build Preview"
+              sandbox="allow-scripts allow-same-origin"
+            />
+          ) : previewUrl ? (
             <iframe
               key={previewUrl}
               src={previewUrl}
@@ -203,7 +223,7 @@ export default function BuilderPreview({ visible }) {
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#334155', fontSize: 12, gap: 8 }}>
               <div style={{ fontSize: 24, opacity: 0.3 }}>⬡</div>
-              Enter a URL or wait for an agent to start a server
+              Enter a URL or wait for an agent to generate a site
             </div>
           )}
         </div>
