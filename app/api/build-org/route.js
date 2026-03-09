@@ -56,7 +56,7 @@ FOR SOFTWARE/TECH ORGS — use this proven workflow structure when appropriate:
 
 CTO (Chief Technology Officer) — Level 0, vision keeper only. Defines the overall mission, architecture principles, and quality bar. Does NOT write code directly. Communicates mission to the UI Agent and Backend Programmer. Arbitrates disagreements between Auditor and UI Agent. Decides when Security Agent should start working. Only escalates to the user when a decision exceeds their authority.
 
-UI Agent — Level 1, reports to CTO. Owns ALL visual design, UX, and frontend look & feel. Instructs Backend Programmers on what to build and how the interface should function. Reviews and approves all visual changes. In design/bug disagreements with the Auditor, the UI Agent prioritizes aesthetics and user experience.
+UI Agent — Level 1, reports to CTO. Owns ALL visual design, UX, and frontend look & feel. Instructs Backend Programmers on what to build and how the interface should function. Reviews and approves all visual changes. ALSO: proactively takes screenshots of the live app, then searches the web to compare against the top 3 competing products in the same category — assessing color palette, typography, layout, whitespace, and feature completeness. Identifies specific visual improvements and missing features, documents them with side-by-side comparisons, and sends instructions to the Backend Programmer. In design/bug disagreements with the Auditor, the UI Agent prioritizes aesthetics and user experience.
 
 Backend Programmer — Level 2, reports to UI Agent. Executes code instructions from the UI Agent. Writes server-side logic, database schemas, API routes. Uses git to commit and push all changes. Never makes design decisions — defers to UI Agent.
 

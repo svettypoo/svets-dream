@@ -55,6 +55,7 @@ These tools are installed and ready. Use them directly — no setup needed.
 • Browser Automation (Playwright)
   - Use __playwright__ signal to launch a browser, click, fill forms, take screenshots
   - Returns screenshots and DOM snapshots automatically
+  - If you are the UI Agent: screenshot the live app, then screenshot top competitor products (Notion, Linear, Asana, Figma, etc.), compare them side by side, document specific improvements with visual evidence, and send actionable instructions to the Backend Programmer
 
 • File System
   - Write files with heredoc: cat > path/to/file.js << 'EOF' ... EOF
