@@ -119,6 +119,7 @@ export default function Dashboard() {
   const [tabs, setTabs] = useState([{ id: 1, name: 'Project 1', orgData: null, builderActive: false }])
   const [activeTabId, setActiveTabId] = useState(1)
   const [selectedAgent, setSelectedAgent] = useState(null)
+  const [agentKickoff, setAgentKickoff] = useState(null)
   const [user, setUser] = useState(null)
   const [introNodeIds, setIntroNodeIds] = useState(new Set())
   const [agentChats, setAgentChats] = useState({}) // nodeId → message string
@@ -148,6 +149,18 @@ export default function Dashboard() {
     window.addEventListener('builderUpdate', onBuild)
     return () => window.removeEventListener('builderUpdate', onBuild)
   }, [activeTabId])
+
+  // Open agent modal from BuilderChat "Start Building" button
+  useEffect(() => {
+    function onOpenAgent(e) {
+      const { agent, kickoff } = e.detail || {}
+      if (!agent) return
+      setSelectedAgent(agent)
+      setAgentKickoff(kickoff || null)
+    }
+    window.addEventListener('openAgent', onOpenAgent)
+    return () => window.removeEventListener('openAgent', onOpenAgent)
+  }, [])
 
   // Track which agents are actively working (spinning gear)
   useEffect(() => {
@@ -384,7 +397,8 @@ export default function Dashboard() {
           agent={selectedAgent}
           orgData={activeTab?.orgData}
           rulesDescription={rulesDescription}
-          onClose={() => setSelectedAgent(null)}
+          initialMessage={agentKickoff}
+          onClose={() => { setSelectedAgent(null); setAgentKickoff(null) }}
         />
       )}
     </div>

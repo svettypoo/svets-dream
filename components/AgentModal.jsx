@@ -117,7 +117,7 @@ function AgentResume({ agent, orgData, onStartChat }) {
   )
 }
 
-export default function AgentModal({ agent, orgData, rulesDescription, onClose }) {
+export default function AgentModal({ agent, orgData, rulesDescription, onClose, initialMessage }) {
   const [view, setView] = useState('resume') // 'resume' | 'chat'
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -149,6 +149,18 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose }
     }
     loadHistory()
   }, [agent.id, agent.label])
+
+  // If opened with a kickoff message and no history, switch to chat and auto-send
+  const kickoffFiredRef = useRef(false)
+  useEffect(() => {
+    if (!initialMessage || kickoffFiredRef.current) return
+    if (!historyLoaded) return
+    // Only auto-send if no existing history
+    if (messages.length > 0) return
+    kickoffFiredRef.current = true
+    setView('chat')
+    setTimeout(() => sendMessage(initialMessage), 100)
+  }, [historyLoaded, initialMessage])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })

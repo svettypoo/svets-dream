@@ -172,6 +172,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [currentOrg, setCurrentOrg] = useState(null)
+  const [orgReady, setOrgReady] = useState(false)
   const bottomRef = useRef(null)
 
   useImperativeHandle(ref, () => ({
@@ -207,8 +208,8 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         setCurrentOrg(parsed.org)
         onOrgUpdate(parsed.org)
         dispatchActivity('CTO', 'complete', 'Team assembled')
-        // Activate build preview panel
         window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'info', data: { text: 'Team assembled — ready to build' } } }))
+        setOrgReady(true)
       }
 
       const reply = parsed.message || 'Got it.'
@@ -310,6 +311,45 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             )}
             <div ref={bottomRef} />
           </div>
+
+          {/* Start Building CTA — appears once org is assembled */}
+          {orgReady && currentOrg && (
+            <div style={{
+              margin: '0 12px 10px',
+              padding: '12px 16px',
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(14,165,233,0.12))',
+              border: '1px solid rgba(99,102,241,0.4)',
+              display: 'flex', alignItems: 'center', gap: 12,
+              flexShrink: 0,
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', marginBottom: 2 }}>Team assembled</div>
+                <div style={{ fontSize: 11, color: '#6366f1' }}>Open the CTO to start building your project</div>
+              </div>
+              <button
+                onClick={() => {
+                  const ctoNode = currentOrg.nodes?.find(n => n.id !== 'rules' && (n.level ?? 0) === 0)
+                  if (!ctoNode) return
+                  window.dispatchEvent(new CustomEvent('openAgent', {
+                    detail: {
+                      agent: ctoNode,
+                      kickoff: `The team is assembled. Let's start building. Check for any existing VISION.md or project files first, then either continue existing work or begin the vision process with me.`,
+                    }
+                  }))
+                }}
+                style={{
+                  padding: '8px 14px', borderRadius: 8, border: 'none', flexShrink: 0,
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 12px rgba(99,102,241,0.4)',
+                }}
+              >
+                Start Building →
+              </button>
+            </div>
+          )}
 
           {/* Input */}
           <div style={{ padding: '12px', borderTop: '1px solid #1e3a5f', background: '#0a1520', flexShrink: 0 }}>
