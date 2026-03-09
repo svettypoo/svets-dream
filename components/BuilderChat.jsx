@@ -136,11 +136,24 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [loading, setLoading] = useState(false)
   const [queued, setQueued] = useState([])
   const [currentOrg, setCurrentOrg] = useState(null)
+  const [thinkingLabel, setThinkingLabel] = useState('Thinking...')
   const bottomRef = useRef(null)
   const messagesRef = useRef(messages)
   const currentOrgRef = useRef(currentOrg)
   useEffect(() => { messagesRef.current = messages }, [messages])
   useEffect(() => { currentOrgRef.current = currentOrg }, [currentOrg])
+
+  // Listen for agent activity to update the thinking label
+  useEffect(() => {
+    function onActivity(e) {
+      const { type, text } = e.detail || {}
+      if (type === 'thinking') setThinkingLabel(text || 'Thinking...')
+      else if (type === 'complete') setThinkingLabel('Thinking...')
+      else if (type === 'sent' || type === 'error') setThinkingLabel('Thinking...')
+    }
+    window.addEventListener('agentActivity', onActivity)
+    return () => window.removeEventListener('agentActivity', onActivity)
+  }, [])
 
   useImperativeHandle(ref, () => ({
     addScreenshotMessage({ screenshot, assessment, passed }) {
@@ -193,7 +206,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
       // ── Real CTO mode: agent-chat with streaming ──
       const ctoNode = org.nodes?.find(n => n.id !== 'rules' && (n.level ?? 0) === 0)
       const rulesNode = org.nodes?.find(n => n.id === 'rules')
-      dispatchActivity(ctoNode?.label || 'CTO', 'thinking', 'CTO is thinking...')
+      dispatchActivity(ctoNode?.label || 'CTO', 'thinking', 'Reading VISION.md...')
       dispatchAgentStatus(ctoNode?.id || 'cto', true)
 
       try {
@@ -220,6 +233,15 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
           assistantText += chunk
           // Parse delegation markers as they arrive (spins gears)
           parseDelegationMarkers(assistantText)
+          // Update thinking label based on content patterns
+          if (chunk.includes('🔍')) setThinkingLabel('Reading files...')
+          else if (chunk.includes('📄')) setThinkingLabel('Writing document...')
+          else if (chunk.includes('💻')) setThinkingLabel('Running command...')
+          else if (chunk.includes('🌐')) setThinkingLabel('Launching browser...')
+          else if (chunk.includes('🤝')) {
+            const m = chunk.match(/🤝 \*\*([^→]+)→ ([^*]+)\*\*/)
+            setThinkingLabel(m ? `Delegating to ${m[2].trim()}...` : 'Delegating task...')
+          }
           // Strip markers before displaying
           const display = assistantText.replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
@@ -239,7 +261,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
 
     } else {
       // ── Org design mode: build-org ──
-      dispatchActivity('CTO', 'thinking', 'Reading your message...')
+      dispatchActivity('CTO', 'thinking', 'Assembling your team...')
       try {
         const res = await fetch('/api/build-org', {
           method: 'POST',
@@ -250,6 +272,12 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         let parsed
         try { parsed = JSON.parse(rawText) } catch { parsed = { message: rawText } }
 
+        if (parsed.error) {
+          dispatchActivity('CTO', 'error', parsed.error)
+          setMessages(prev => [...prev, { role: 'assistant', content: `❌ **Error:** ${parsed.error}` }])
+          return
+        }
+
         if (parsed.org) {
           setCurrentOrg(parsed.org)
           onOrgUpdate(parsed.org)
@@ -257,7 +285,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
           window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'info', data: { text: 'Team assembled' } } }))
         }
 
-        const reply = parsed.message || 'Got it.'
+        const reply = parsed.message || '(no response)'
         dispatchActivity('CTO', 'sent', reply.slice(0, 120))
         setMessages(prev => [...prev, { role: 'assistant', content: reply }])
       } catch (err) {
@@ -344,14 +372,16 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', border: '1.5px solid #0EA5E9', background: '#0c2040', flexShrink: 0 }}>
                   <img src={CTO_AVATAR} alt="CTO" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
-                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <style>{`@keyframes thinkDot{0%,80%,100%{transform:scale(0);opacity:0.3}40%{transform:scale(1);opacity:1}}`}</style>
-                  {[0, 0.15, 0.3].map((d, i) => (
-                    <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#a78bfa', animation: `thinkDot 1.2s ${d}s ease-in-out infinite` }} />
-                  ))}
-                  <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600, marginLeft: 4 }}>
-                    {currentOrg ? 'CTO is working...' : 'CTO is thinking...'}
-                  </span>
+                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <style>{`@keyframes thinkDot{0%,80%,100%{transform:scale(0);opacity:0.3}40%{transform:scale(1);opacity:1}} @keyframes thinkPulse{0%,100%{opacity:0.5}50%{opacity:1}}`}</style>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {[0, 0.15, 0.3].map((d, i) => (
+                      <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#a78bfa', animation: `thinkDot 1.2s ${d}s ease-in-out infinite` }} />
+                    ))}
+                    <span style={{ fontSize: 12, color: '#a78bfa', fontWeight: 700, marginLeft: 2, animation: 'thinkPulse 2s ease-in-out infinite' }}>
+                      {thinkingLabel}
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
