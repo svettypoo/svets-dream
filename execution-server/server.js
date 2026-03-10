@@ -34,6 +34,26 @@ const EXEC_TOKEN = process.env.EXEC_TOKEN || 'dev-token-change-in-prod'
 const HOME = process.env.HOME || os.homedir()
 const WORK_DIR = process.env.WORK_DIR || path.join(HOME, 'workspace')
 
+// Detect bash binary (handles Windows with Git Bash)
+const BASH = (() => {
+  const candidates = [
+    process.env.SHELL,
+    process.env.BASH,
+    'C:\\Users\\pargo_pxnd4wa\\scoop\\apps\\git\\current\\bin\\bash.exe',
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+    '/bin/bash',
+    '/usr/bin/bash',
+    'bash',
+  ]
+  for (const p of candidates) {
+    if (!p) continue
+    if (p === 'bash') return p
+    try { fs.accessSync(p); return p } catch {}
+  }
+  return 'bash'
+})()
+
 // Ensure workspace exists
 fs.mkdirSync(WORK_DIR, { recursive: true })
 
@@ -120,9 +140,7 @@ const server = http.createServer((req, res) => {
         'X-Session-Id': sessionId,
       })
 
-      // Use bash if available, otherwise sh
-      const shell = process.env.SHELL || '/bin/bash'
-      const child = spawn(shell, ['-c', cmd], {
+      const child = spawn(BASH, ['-c', cmd], {
         cwd,
         env: {
           ...process.env,
@@ -159,12 +177,7 @@ const server = http.createServer((req, res) => {
         }
       })
 
-      req.on('close', () => {
-        if (!exited) {
-          child.kill('SIGTERM')
-          setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 2000)
-        }
-      })
+      // Note: intentionally not killing child on req close — command should run to completion
     })
     return
   }
