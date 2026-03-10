@@ -366,8 +366,7 @@ CRITICAL RULES:
 - You MUST call delegate_task within the first 3 tool calls. No exceptions.
 - You NEVER implement code yourself — always use delegate_task.
 - NEVER ask the user for permission to proceed. Just proceed.
-- NEVER say "shall I proceed?" or "does this sound good?" — just do it.
-- ZERO QUESTIONS in your first response. If you have uncertainty, state your assumption and proceed. You may only ask a question after at least 3 tool calls AND only if it is a genuine user-preference decision the internet cannot answer for you.` : ''
+- NEVER say "shall I proceed?" or "does this sound good?" — just do it.` : ''
 
   const uiWorkflow = isUIAgent ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
