@@ -764,6 +764,44 @@ Never skip these. The user is watching and needs to know you're working.`,
         const out = [r.stdout, r.stderr].filter(Boolean).join('\n').trim() || '(no output)'
         const truncated = out.slice(0, 3000)
         send(`\n\n**Output** (exit ${r.exitCode}):\n\`\`\`\n${truncated}\n\`\`\``)
+
+        // ── Auto-screenshot any live URL found in output ──────────────────
+        const urlMatch = out.match(/https:\/\/[\w.-]+\.(vercel\.app|railway\.app|netlify\.app|up\.railway\.app|herokuapp\.com|pages\.dev)(\/\S*)?/i)
+        if (urlMatch && process.env.EXECUTION_SERVER_URL) {
+          const liveUrl = urlMatch[0].replace(/[.,;)'"]+$/, '') // strip trailing punctuation
+          send(`\n\n🚀 **Live URL detected:** [${liveUrl}](${liveUrl})\n📸 Taking screenshot...`)
+          try {
+            const execUrl = process.env.EXECUTION_SERVER_URL
+            const execToken = process.env.EXEC_TOKEN || 'svets-exec-token-2026'
+            const navRes = await fetch(`${execUrl}/browser`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${execToken}` },
+              body: JSON.stringify({ action: 'navigate', sessionId: `deploy-${agentId}`, url: liveUrl }),
+            })
+            const navResult = await navRes.json()
+            if (navResult.ok) {
+              // Wait a moment for JS to render
+              await new Promise(r => setTimeout(r, 2000))
+              const shotRes = await fetch(`${execUrl}/browser`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${execToken}` },
+                body: JSON.stringify({ action: 'screenshot', sessionId: `deploy-${agentId}`, fullPage: false }),
+              })
+              const shot = await shotRes.json()
+              if (shot.screenshot) {
+                send(`\n\n![Live site screenshot](data:image/png;base64,${shot.screenshot})`)
+                send(`\n\n<!--PREVIEW_URL:${liveUrl}-->`)
+              }
+              // Close session
+              fetch(`${execUrl}/browser`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${execToken}` },
+                body: JSON.stringify({ action: 'close', sessionId: `deploy-${agentId}` }),
+              }).catch(() => {})
+            }
+          } catch {} // screenshot failure is non-fatal
+        }
+
         return `exit ${r.exitCode}:\n${truncated}`
       } catch (err) {
         send(`\n\n❌ **Error:** ${err.message}`)

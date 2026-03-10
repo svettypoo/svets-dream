@@ -332,11 +332,20 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
               } catch {}
             }
           }
+          // Parse live URL markers — auto-load in Preview tab
+          const urlMatches = assistantText.match(/<!--PREVIEW_URL:(https?:\/\/[^>]+)-->/g)
+          if (urlMatches) {
+            for (const match of urlMatches) {
+              const url = match.replace('<!--PREVIEW_URL:', '').replace('-->', '').trim()
+              if (url) window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'url', data: { url } } }))
+            }
+          }
           // Strip all markers before displaying
           const display = assistantText
             .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
             .replace(/<!--PREVIEW_HTML:[A-Za-z0-9+/=]*-->/g, '')
             .replace(/<!--FILE_ENTRY:\{[^>]*\}-->/g, '')
+            .replace(/<!--PREVIEW_URL:[^>]*-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
         }
 
