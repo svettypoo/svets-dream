@@ -29,7 +29,7 @@ async function getFeatures() {
 }
 
 export async function POST(req) {
-  const { agent, messages, orgContext, rules, _delegationDepth = 0, workspaceId } = await req.json()
+  const { agent, messages, orgContext, rules, _delegationDepth = 0, workspaceId, quickMode } = await req.json()
   const featuresContext = await getFeatures()
 
   // On Vercel serverless, HOME=/var/task which is read-only. Use /tmp for all writes.
@@ -192,6 +192,27 @@ export async function POST(req) {
         required: ['path', 'content'],
       },
     },
+    {
+      name: 'read_file',
+      description: 'Read the contents of a file from your workspace.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path (e.g. ~/myproject/index.html)' },
+        },
+        required: ['path'],
+      },
+    },
+    {
+      name: 'list_dir',
+      description: 'List files in a workspace directory.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Directory path (defaults to workspace root ~/)' },
+        },
+      },
+    },
   ]
 
   const implementerTools = [
@@ -217,6 +238,27 @@ export async function POST(req) {
           content: { type: 'string', description: 'Full file content to write' },
         },
         required: ['path', 'content'],
+      },
+    },
+    {
+      name: 'read_file',
+      description: 'Read the contents of a file from your workspace. Use this: (1) before editing existing files to understand what\'s there, (2) after writing to verify correctness, (3) when debugging to inspect current state.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path (e.g. ~/myproject/index.html or ~/workspace/app.js)' },
+        },
+        required: ['path'],
+      },
+    },
+    {
+      name: 'list_dir',
+      description: 'List files and directories in your workspace. Use at the start to see what already exists before writing new files.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Directory path (defaults to workspace root ~/)' },
+        },
       },
     },
     {
@@ -477,14 +519,17 @@ YOUR WORKFLOW AS UI AGENT
 9. After implementation: browser_navigate to the live URL, browser_screenshot to verify, compare against design, report gaps` : ''
 
   const hasExecServer = !!process.env.EXECUTION_SERVER_URL
+  const userFacing = quickMode || false
   const implementerInstructions = !isTopAgent ? (hasExecServer ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 You have FULL access to a persistent execution server with pre-authorized credentials.
-- Use run_bash freely: npm install, git clone, git push, npx create-next-app, vercel deploy — all work
-- Use write_file to create source files, then run_bash to install deps and deploy
-- NEVER contact the user directly — report results back to the CTO
+- Use list_dir first to see what already exists in your workspace before writing anything
+- Use read_file before editing any existing file — understand it before changing it
+- Use run_bash freely: npm install, git clone, git push, npx create-next-app — all work
+- Use write_file to create source files, then run_bash to install deps and test
+- ${userFacing ? 'Report results directly to the user with a clear summary' : 'NEVER contact the user directly — report results back to the CTO'}
 - Keep going until the task is FULLY complete — do not stop after one step
 - Working directory: ~/workspace (persists between commands)
 
@@ -508,36 +553,55 @@ To deploy a real app:
 2. write_file: write source files into ~/workspace/[project]/
 3. run_bash: cd ~/workspace/[project] && npm install && npm run build (if needed)
 4. run_bash: cd ~/workspace/[project] && vercel --prod --yes (deploys to Vercel, returns live URL)
-5. Report the live URL back to CTO
+5. Report the live URL back to ${userFacing ? 'the user' : 'CTO'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SELF-TEST LOOP — MANDATORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+After writing any code file, you MUST verify it works:
+1. Use read_file to read back what you just wrote — confirm content is correct
+2. For Node.js scripts: run_bash "node ~/[file]" — check for errors
+3. For npm projects: run_bash "cd ~/[project] && npm run build" or "npm test"
+4. If you get an error: read the exact error message, fix the code, run again
+5. Do NOT declare done until the code actually executes without errors
+6. Then call git_commit to checkpoint your working state
 
 You can also: git clone repos, push code to GitHub, run tests, set up databases, send emails via Resend, send SMS via Telnyx.
 Always use write_file for large file content, then run_bash for commands.` : `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Use write_file to create HTML/CSS/JS files (no npm, no git needed)
-- Use run_bash only for simple operations like mkdir, ls, cat (no npm/git/npx — not available)
-- NEVER contact the user directly — report results back to the CTO
+- Use list_dir first to see what already exists before writing anything new
+- Use read_file before editing an existing file — understand it first
+- Use output_html to create HTML files, write_file for CSS/JS
+- run_bash for simple operations like mkdir, ls (no npm/git/npx — not available)
+- ${userFacing ? 'Report results directly to the user with a clear summary' : 'NEVER contact the user directly — report results back to the CTO'}
 - Keep going until the task is FULLY complete — do not stop after one step
-- Home directory: ${home}
+- Home directory: ${wsHome}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 HTML GENERATION — MANDATORY APPROACH
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You are running on a serverless environment. npm, git, npx, node servers — NONE are available.
 You MUST generate websites as self-contained single-file HTML.
 
 REQUIRED STEPS:
-1. Use run_bash to read any VISION.md or project files first
+1. Use list_dir to see what already exists
 2. Call output_html with:
    - path="~/[project]/index.html"
    - html="<FULL COMPLETE HTML DOCUMENT>"
-   The "html" field MUST contain the ENTIRE HTML document — not a summary, not a description, the actual HTML code.
+   The "html" field MUST contain the ENTIRE HTML document.
 3. The HTML must have ALL CSS in <style> tags, ALL JS inline or via CDN (e.g. https://cdn.tailwindcss.com)
 4. Make it look professional: hero, navigation, services, about, contact form, footer
 
-CRITICAL: Put the ENTIRE HTML in the "html" field of output_html. Do NOT just put the path. Do NOT stream it as text first.
-DO NOT attempt npm install, git push, or running a server.`) : ''
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SELF-TEST LOOP — MANDATORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+After writing any file:
+1. Use read_file to verify the file saved correctly — check content looks right
+2. Fix anything wrong and write it again
+3. Then call git_commit to checkpoint your working state
+
+CRITICAL: Put the ENTIRE HTML in the "html" field of output_html. Do NOT just put the path.`) : ''
 
   // OpenClaw context assembly order: SOUL.md → AGENTS.md → role/workflow → skills → org → memories
   const systemPrompt = [
@@ -746,6 +810,28 @@ Never skip these. The user is watching and needs to know you're working.`,
       const r = await runBash(`git add -A && git commit -m "${msg}" --allow-empty`, wsHome)
       send(`\n\n📦 **Committed:** \`${input.message}\``)
       return (r.stdout || r.stderr || 'Committed.').slice(0, 500)
+
+    } else if (name === 'read_file') {
+      const resolvedPath = (input.path || '').replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
+      try {
+        const { readFileSync } = await import('fs')
+        const content = readFileSync(resolvedPath, 'utf8')
+        send(`\n\n📖 **Read:** \`${input.path}\` (${content.length} chars)`)
+        return content.slice(0, 20000)
+      } catch (err) {
+        return `File not found: ${err.message}`
+      }
+
+    } else if (name === 'list_dir') {
+      const dirPath = input.path
+        ? input.path.replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
+        : wsHome
+      const r = await runBash(
+        `find "${dirPath}" -maxdepth 3 -not -path "*/.git/*" -not -path "*/node_modules/*" | sort`,
+        wsHome
+      )
+      send(`\n\n📁 **Directory:** \`${input.path || '~/'}\``)
+      return r.stdout || r.stderr || '(empty directory)'
 
     } else if (name === 'run_bash') {
       const cmd = input.command
@@ -1183,8 +1269,18 @@ Never skip these. The user is watching and needs to know you're working.`,
         const normalized = []
         for (const msg of loopMessages) {
           const last = normalized[normalized.length - 1]
-          if (last && last.role === msg.role) last.content += '\n\n' + msg.content
-          else normalized.push({ ...msg })
+          if (last && last.role === msg.role) {
+            // Handle multimodal (array) content — don't stringify it
+            if (Array.isArray(last.content) || Array.isArray(msg.content)) {
+              const a = Array.isArray(last.content) ? last.content : [{ type: 'text', text: String(last.content) }]
+              const b = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content) }]
+              last.content = [...a, ...b]
+            } else {
+              last.content += '\n\n' + msg.content
+            }
+          } else {
+            normalized.push({ ...msg })
+          }
         }
         loopMessages = normalized
 

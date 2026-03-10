@@ -205,6 +205,9 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [queued, setQueued] = useState([])
   const [currentOrg, setCurrentOrg] = useState(null)
   const [thinkingLabel, setThinkingLabel] = useState('Thinking...')
+  const [quickMode, setQuickMode] = useState(false)
+  const [pendingImage, setPendingImage] = useState(null) // { dataUrl, mediaType }
+  const fileInputRef = useRef(null)
   const bottomRef = useRef(null)
   const messagesRef = useRef(messages)
   const currentOrgRef = useRef(currentOrg)
@@ -245,14 +248,29 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
     }
   }, [loading])
 
+  function handleImageSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const dataUrl = ev.target.result
+      const mediaType = file.type || 'image/png'
+      setPendingImage({ dataUrl, mediaType, name: file.name })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
   function send() {
-    if (!input.trim()) return
+    if (!input.trim() && !pendingImage) return
     const text = input.trim()
     setInput('')
+    const img = pendingImage
+    setPendingImage(null)
     if (loading) {
       setQueued(prev => [...prev, text])
     } else {
-      sendText(text)
+      sendText(text, img)
     }
   }
 
@@ -265,14 +283,72 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
     while ((m = idleRe.exec(text)) !== null) dispatchAgentStatus(m[1].trim(), false)
   }
 
-  async function sendText(text) {
-    const userMsg = { role: 'user', content: text }
+  async function sendText(text, img = null) {
+    // Build content: multimodal if image attached, plain string otherwise
+    const userContent = img
+      ? [
+          { type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.dataUrl.split(',')[1] } },
+          ...(text ? [{ type: 'text', text }] : []),
+        ]
+      : text
+
+    const userMsg = { role: 'user', content: userContent }
     const prevMessages = messagesRef.current.filter(m => !m.isAssessment)
     const chatMessages = [...prevMessages, userMsg]
-    setMessages(prev => [...prev, userMsg])
+    // Display message with thumbnail if image attached
+    setMessages(prev => [...prev, { role: 'user', content: text || '(image)', imageThumb: img?.dataUrl }])
     setLoading(true)
 
     const org = currentOrgRef.current
+
+    // ── Quick mode: skip CTO, go directly to implementer ──
+    if (quickMode) {
+      const quickAgent = {
+        id: 'quick-builder', label: 'Builder',
+        role: 'Senior Full-Stack Engineer', level: 1,
+        description: 'Build exactly what the user requests. Report results and the preview URL directly to the user.',
+      }
+      try {
+        const res = await fetch('/api/agent-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent: quickAgent,
+            messages: chatMessages,
+            workspaceId: workspaceIdRef.current,
+            quickMode: true,
+          }),
+        })
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let assistantText = ''
+        setMessages(prev => [...prev, { role: 'assistant', content: '' }])
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = decoder.decode(value, { stream: true })
+          assistantText += chunk
+          const display = assistantText
+            .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
+            .replace(/<!--PREVIEW_HTML:[A-Za-z0-9+/=]*-->/g, '')
+            .replace(/<!--FILE_ENTRY:\{[^>]*\}-->/g, '')
+            .replace(/<!--PREVIEW_URL:[^>]*-->/g, '')
+          setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
+          // Fire preview events
+          const fileMatches = [...assistantText.matchAll(/<!--FILE_ENTRY:(\{[^>]+\})-->/g)]
+          fileMatches.forEach(m => { try { window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'file', data: JSON.parse(m[1]) } })) } catch {} })
+          const htmlMatches = [...assistantText.matchAll(/<!--PREVIEW_HTML:([A-Za-z0-9+/=]+)-->/g)]
+          htmlMatches.forEach(m => { try { window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'html', data: { html: atob(m[1]) } } })) } catch {} })
+          const urlMatches = [...assistantText.matchAll(/<!--PREVIEW_URL:(https?:\/\/[^>]+)-->/g)]
+          urlMatches.forEach(m => window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'url', data: { url: m[1] } } })))
+        }
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err.message}` }])
+      }
+      setLoading(false)
+      dispatchActivity('Builder', 'complete')
+      return
+    }
 
     if (org) {
       // ── Real CTO mode: agent-chat with streaming ──
@@ -472,6 +548,9 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                         {m.passed ? '✓ Visual Check Passed' : '✗ Visual Check Failed'}
                       </div>
                     )}
+                    {m.imageThumb && (
+                      <img src={m.imageThumb} alt="attached" style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 6, display: 'block' }} />
+                    )}
                     {m.role === 'assistant' ? <MarkdownText text={m.content} /> : m.content}
                   </div>
                 </div>
@@ -537,31 +616,59 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
 
           {/* Input */}
           <div style={{ padding: '12px', borderTop: '1px solid #1e3a5f', background: '#0a1520', flexShrink: 0 }}>
+            {/* Toolbar: quick mode + image attach */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+              <button onClick={() => setQuickMode(q => !q)} title="Quick mode: skip CTO, build directly" style={{
+                padding: '3px 10px', borderRadius: 20, border: `1px solid ${quickMode ? '#6366f1' : '#1e3a5f'}`,
+                background: quickMode ? 'rgba(99,102,241,0.18)' : 'transparent',
+                color: quickMode ? '#a5b4fc' : '#475569', fontSize: 10, fontWeight: 700,
+                cursor: 'pointer', transition: 'all 0.15s', letterSpacing: '0.03em',
+              }}>⚡ {quickMode ? 'Quick ON' : 'Quick'}</button>
+              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageSelect} />
+              <button onClick={() => fileInputRef.current?.click()} title="Attach image" style={{
+                padding: '3px 10px', borderRadius: 20, border: `1px solid ${pendingImage ? '#0EA5E9' : '#1e3a5f'}`,
+                background: pendingImage ? 'rgba(14,165,233,0.15)' : 'transparent',
+                color: pendingImage ? '#38bdf8' : '#475569', fontSize: 10, fontWeight: 700,
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}>📎 {pendingImage ? pendingImage.name.slice(0, 12) + (pendingImage.name.length > 12 ? '…' : '') : 'Image'}</button>
+              {pendingImage && (
+                <button onClick={() => setPendingImage(null)} style={{
+                  padding: '3px 7px', borderRadius: 20, border: '1px solid #334155',
+                  background: 'transparent', color: '#64748b', fontSize: 10, cursor: 'pointer',
+                }}>✕</button>
+              )}
+            </div>
+            {/* Image preview strip */}
+            {pendingImage && (
+              <div style={{ marginBottom: 7 }}>
+                <img src={pendingImage.dataUrl} alt="preview" style={{ height: 60, borderRadius: 6, border: '1px solid #1e3a5f', objectFit: 'cover' }} />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
               <textarea
                 value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                placeholder={currentOrg ? 'Talk to your CTO...' : 'What do you want to build?'}
+                placeholder={quickMode ? 'Build directly (no CTO)...' : currentOrg ? 'Talk to your CTO...' : 'What do you want to build?'}
                 rows={2}
                 style={{
                   flex: 1, padding: '10px 44px 10px 14px', borderRadius: 12,
-                  border: '1px solid #1e3a5f', outline: 'none', fontSize: 13,
+                  border: `1px solid ${quickMode ? 'rgba(99,102,241,0.4)' : '#1e3a5f'}`, outline: 'none', fontSize: 13,
                   resize: 'none', fontFamily: 'inherit', lineHeight: 1.5,
                   background: '#071018', color: '#e2e8f0', transition: 'border-color 0.15s',
                 }}
                 onFocus={e => e.target.style.borderColor = '#6366f1'}
-                onBlur={e => e.target.style.borderColor = '#1e3a5f'}
+                onBlur={e => e.target.style.borderColor = quickMode ? 'rgba(99,102,241,0.4)' : '#1e3a5f'}
               />
-              <button onClick={send} disabled={!input.trim() || loading} title="Send (Enter)" style={{
+              <button onClick={send} disabled={(!input.trim() && !pendingImage) || loading} title="Send (Enter)" style={{
                 position: 'absolute', right: 8, bottom: 8,
                 width: 34, height: 34, borderRadius: 9, border: 'none',
-                background: !input.trim() || loading ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-                color: !input.trim() || loading ? '#334155' : '#fff',
-                fontWeight: 700, fontSize: 16, cursor: !input.trim() || loading ? 'not-allowed' : 'pointer',
+                background: (!input.trim() && !pendingImage) || loading ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                color: (!input.trim() && !pendingImage) || loading ? '#334155' : '#fff',
+                fontWeight: 700, fontSize: 16, cursor: (!input.trim() && !pendingImage) || loading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all 0.2s',
-                boxShadow: input.trim() && !loading ? '0 2px 10px rgba(99,102,241,0.5)' : 'none',
-                transform: input.trim() && !loading ? 'scale(1.05)' : 'scale(1)',
+                boxShadow: (input.trim() || pendingImage) && !loading ? '0 2px 10px rgba(99,102,241,0.5)' : 'none',
+                transform: (input.trim() || pendingImage) && !loading ? 'scale(1.05)' : 'scale(1)',
               }}>{loading ? <span style={{ fontSize: 10, letterSpacing: 1 }}>•••</span> : '↑'}</button>
             </div>
             <div style={{ fontSize: 9.5, color: '#334155', marginTop: 4, textAlign: 'right', paddingRight: 4 }}>⏎ send · Shift+⏎ newline</div>
