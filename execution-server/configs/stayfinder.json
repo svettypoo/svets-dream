@@ -1,0 +1,63 @@
+{
+  "appName": "StayFinder",
+  "tagline": "Find your perfect stay, anywhere in the world",
+  "headline": "Find your perfect stay",
+  "subheadline": "Browse thousands of unique homes, apartments, and villas — book with confidence.",
+  "ctaText": "Start exploring",
+  "primaryColor": "#FF385C",
+  "blocks": [
+    "next-shell",
+    "supabase",
+    "auth-email",
+    "auth-google",
+    "dashboard-layout",
+    "bookings",
+    "search-filters",
+    "reviews-ratings",
+    "image-gallery",
+    "map-view",
+    "user-profiles",
+    "chat-realtime",
+    "notifications",
+    "stripe-connect",
+    "sms-telnyx",
+    "email-resend",
+    "file-upload",
+    "about-page",
+    "contact-form",
+    "landing",
+    "settings-page",
+    "cron"
+  ],
+  "entities": [
+    {
+      "name": "listings",
+      "label": "Listings",
+      "fields": ["title", "description", "location", "price_per_night", "max_guests", "bedrooms", "bathrooms", "amenities", "images", "lat", "lng", "host_id", "rating", "review_count", "is_published", "category", "status"]
+    },
+    {
+      "name": "bookings",
+      "label": "Bookings",
+      "fields": ["listing_id", "guest_id", "check_in", "check_out", "guests", "total_price", "status", "payment_intent_id", "stripe_charge_id"]
+    },
+    {
+      "name": "reviews",
+      "label": "Reviews",
+      "fields": ["listing_id", "reviewer_id", "rating", "body", "cleanliness", "communication", "checkin", "accuracy", "location_score", "value"]
+    },
+    {
+      "name": "availability",
+      "label": "Availability",
+      "fields": ["listing_id", "date", "is_blocked", "reason"]
+    }
+  ],
+  "navItems": [
+    { "label": "Dashboard", "href": "/dashboard", "icon": "LayoutDashboard" },
+    { "label": "My Bookings", "href": "/dashboard/bookings", "icon": "Calendar" },
+    { "label": "My Listings", "href": "/dashboard/listings", "icon": "Home" },
+    { "label": "Messages", "href": "/dashboard/messages", "icon": "MessageCircle" },
+    { "label": "Reviews", "href": "/dashboard/reviews", "icon": "Star" },
+    { "label": "Earnings", "href": "/dashboard/earnings", "icon": "DollarSign" },
+    { "label": "Settings", "href": "/dashboard/settings", "icon": "Settings" }
+  ]
+}

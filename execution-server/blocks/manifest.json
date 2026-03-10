@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Reusable frontend/backend blocks for rapid app scaffolding",
   "blocks": [
     {
@@ -170,6 +170,134 @@
       "files": ["env-template/.env.local.template"],
       "requires": [],
       "tags": ["env", "config", "setup"]
+    },
+    {
+      "id": "tasks",
+      "name": "Task Management",
+      "description": "Drag-drop Kanban board for tasks, CRUD API, assignees, priorities, due dates",
+      "type": "component",
+      "files": ["tasks/components/TaskBoard.jsx", "tasks/app/dashboard/tasks/page.js", "tasks/app/api/tasks/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["tasks", "kanban", "productivity"]
+    },
+    {
+      "id": "email-marketing",
+      "name": "Email Campaigns",
+      "description": "Batch email sender via Resend (up to 100/batch), campaign builder UI",
+      "type": "component",
+      "files": ["email-marketing/lib/resend-campaigns.js", "email-marketing/components/CampaignBuilder.jsx", "email-marketing/app/api/emails/campaign/route.js"],
+      "requires": ["next-shell"],
+      "tags": ["email", "marketing", "campaigns", "resend"]
+    },
+    {
+      "id": "stripe-connect",
+      "name": "Stripe Connect (Marketplace)",
+      "description": "Host onboarding via Stripe Express, charge-with-transfer, platform fee, payouts",
+      "type": "payment",
+      "files": ["stripe-connect/lib/stripe-connect.js", "stripe-connect/app/api/stripe/connect/route.js", "stripe-connect/components/ConnectOnboarding.jsx"],
+      "requires": ["supabase"],
+      "tags": ["stripe", "marketplace", "connect", "payouts"]
+    },
+    {
+      "id": "sms-telnyx",
+      "name": "SMS (Telnyx)",
+      "description": "Send/receive SMS via Telnyx, OTP generation + verification, inbound webhook",
+      "type": "api",
+      "files": ["sms-telnyx/lib/telnyx.js", "sms-telnyx/app/api/sms/route.js", "sms-telnyx/app/api/sms/webhook/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["sms", "telnyx", "otp", "phone"]
+    },
+    {
+      "id": "about-page",
+      "name": "About Page",
+      "description": "Team/mission/values page — headline + tagline from config",
+      "type": "page",
+      "files": ["about-page/app/about/page.js"],
+      "requires": ["next-shell"],
+      "tags": ["about", "marketing", "team"],
+      "smart": true
+    },
+    {
+      "id": "pricing-page",
+      "name": "Pricing Page",
+      "description": "3-tier pricing with highlight, feature lists, and CTA buttons",
+      "type": "page",
+      "files": ["pricing-page/app/pricing/page.js"],
+      "requires": ["next-shell"],
+      "tags": ["pricing", "saas", "marketing"]
+    },
+    {
+      "id": "contact-form",
+      "name": "Contact Form",
+      "description": "Contact page with form → saves to DB + sends notification email",
+      "type": "page",
+      "files": ["contact-form/app/contact/page.js", "contact-form/app/api/contact/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["contact", "form", "marketing"]
+    },
+    {
+      "id": "bookings",
+      "name": "Booking / Reservation System",
+      "description": "BookingForm with date range picker, guest count, price breakdown, conflict check",
+      "type": "component",
+      "files": ["bookings/components/BookingForm.jsx", "bookings/components/DateRangePicker.jsx", "bookings/app/api/bookings/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["bookings", "reservations", "calendar", "marketplace"]
+    },
+    {
+      "id": "search-filters",
+      "name": "Search + Filter UI",
+      "description": "SearchFilters bar + ListingCard grid — location, dates, guests, price, rating filters",
+      "type": "component",
+      "files": ["search-filters/components/SearchFilters.jsx", "search-filters/components/ListingCard.jsx", "search-filters/app/search/page.js"],
+      "requires": ["next-shell"],
+      "tags": ["search", "filter", "listings", "marketplace"],
+      "smart": true
+    },
+    {
+      "id": "reviews-ratings",
+      "name": "Reviews & Ratings",
+      "description": "Star rating picker, review form, breakdown bars, auto-updates listing average",
+      "type": "component",
+      "files": ["reviews-ratings/components/ReviewSection.jsx", "reviews-ratings/app/api/reviews/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["reviews", "ratings", "stars", "trust"]
+    },
+    {
+      "id": "image-gallery",
+      "name": "Image Gallery",
+      "description": "Hero + 4-grid layout with lightbox — Airbnb-style photo viewer",
+      "type": "component",
+      "files": ["image-gallery/components/ImageGallery.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["images", "gallery", "photos", "lightbox"]
+    },
+    {
+      "id": "map-view",
+      "name": "Map View (Leaflet)",
+      "description": "Property price-pin markers on OpenStreetMap — no API key required",
+      "type": "component",
+      "files": ["map-view/components/MapView.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["map", "leaflet", "location", "geo"]
+    },
+    {
+      "id": "user-profiles",
+      "name": "User Profiles",
+      "description": "ProfileCard with stats, badges, bio, languages — host/guest role support",
+      "type": "component",
+      "files": ["user-profiles/components/ProfileCard.jsx", "user-profiles/app/api/profiles/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["profiles", "users", "host", "guest"]
+    },
+    {
+      "id": "chat-realtime",
+      "name": "Real-time Chat",
+      "description": "Supabase realtime message subscription, conversation threads, inbox list",
+      "type": "component",
+      "files": ["chat-realtime/components/ChatWindow.jsx", "chat-realtime/components/ConversationList.jsx", "chat-realtime/app/api/messages/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["chat", "messaging", "realtime", "supabase"]
     }
   ]
 }
