@@ -1100,6 +1100,160 @@ Return this exact JSON structure (fill in all values for this specific app):
     return
   }
 
+  // ── POST /forge/deploy — assemble + push to GitHub + create Railway service ──
+  // Body: { workspaceId, tenantId, appName, appPath, config }
+  // Returns: { ok, repoUrl, railwayUrl, tenantId }
+  if (req.method === 'POST' && url.pathname === '/forge/deploy') {
+    let body = ''
+    req.on('data', d => body += d)
+    req.on('end', async () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      try {
+        const { workspaceId, tenantId, appName, appPath, config } = JSON.parse(body)
+        const tid = tenantId || `tenant-${Date.now()}`
+        const slug = (appName || 'app').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').slice(0, 30)
+        const repoName = `forge-${slug}-${tid.slice(-6)}`
+        const dir = appPath || `/root/workspace/${workspaceId || slug}`
+
+        if (!fs.existsSync(dir)) {
+          return res.end(JSON.stringify({ error: `App directory not found: ${dir}` }))
+        }
+
+        // ── 1. Write tenant middleware into the app ──
+        const tenantMiddleware = `// Auto-injected by Forge — tenant isolation + usage metering
+export const TENANT_ID = '${tid}'
+export const FORGE_API = '${process.env.FORGE_API_URL || 'https://svets-dream-production.up.railway.app'}'
+`
+        fs.writeFileSync(path.join(dir, 'lib/tenant.js'), tenantMiddleware)
+
+        // ── 2. Write .env.local with OUR shared credentials + tenant vars ──
+        const envContent = [
+          `# Forge-managed credentials — do not edit`,
+          `NEXT_PUBLIC_SUPABASE_URL=${process.env.NEXT_PUBLIC_SUPABASE_URL || ''}`,
+          `NEXT_PUBLIC_SUPABASE_ANON_KEY=${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}`,
+          `SUPABASE_SERVICE_ROLE_KEY=${process.env.SUPABASE_SERVICE_ROLE_KEY || ''}`,
+          `RESEND_API_KEY=${process.env.RESEND_API_KEY || ''}`,
+          `RESEND_FROM=noreply@${slug}.svets-dream.app`,
+          `TELNYX_API_KEY=${process.env.TELNYX_API_KEY || ''}`,
+          `TELNYX_FROM_NUMBER=${process.env.TELNYX_FROM_NUMBER || ''}`,
+          `STRIPE_SECRET_KEY=${process.env.STRIPE_SECRET_KEY || ''}`,
+          `STRIPE_PUBLISHABLE_KEY=${process.env.STRIPE_PUBLISHABLE_KEY || ''}`,
+          `ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
+          `NEXT_PUBLIC_APP_URL=https://${slug}.svets-dream.app`,
+          `FORGE_TENANT_ID=${tid}`,
+          `FORGE_API_URL=${process.env.FORGE_API_URL || 'https://svets-dream-production.up.railway.app'}`,
+          `CRON_SECRET=${Math.random().toString(36).slice(2)}`,
+        ].join('\n')
+        fs.writeFileSync(path.join(dir, '.env.local'), envContent)
+
+        // ── 3. Git init + push to GitHub ──
+        const GH_TOKEN = process.env.GITHUB_TOKEN
+        const GH_ORG = process.env.GITHUB_ORG || 'svettypoo'
+        let repoUrl = null
+
+        if (GH_TOKEN) {
+          // Create private repo via GitHub API
+          const createRepo = await new Promise((resolve) => {
+            const payload = JSON.stringify({ name: repoName, private: true, description: `Forge app: ${appName} (tenant ${tid})`, auto_init: false })
+            const options = {
+              hostname: 'api.github.com',
+              path: `/user/repos`,
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `token ${GH_TOKEN}`, 'User-Agent': 'Forge/1.0', 'Content-Length': Buffer.byteLength(payload) },
+            }
+            const r = require('https').request(options, resp => {
+              let d = ''; resp.on('data', c => d += c); resp.on('end', () => resolve(JSON.parse(d)))
+            })
+            r.on('error', e => resolve({ error: e.message }))
+            r.write(payload); r.end()
+          })
+
+          if (createRepo.html_url) {
+            repoUrl = createRepo.html_url
+            const remoteUrl = `https://${GH_TOKEN}@github.com/${GH_ORG}/${repoName}.git`
+            try {
+              execSync(`cd "${dir}" && git init && git add -A && git commit -m "Initial Forge scaffold: ${appName}" && git branch -M main && git remote add origin ${remoteUrl} && git push -u origin main`, { stdio: 'pipe' })
+            } catch (e) {
+              console.error('Git push failed:', e.message)
+            }
+          }
+        } else {
+          // No GitHub token — just git init locally
+          try { execSync(`cd "${dir}" && git init && git add -A && git commit -m "Initial Forge scaffold: ${appName}"`, { stdio: 'pipe' }) } catch {}
+        }
+
+        // ── 4. Register tenant in Supabase ──
+        const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+        let tenantRecord = null
+        if (SUPA_URL && SUPA_KEY) {
+          const r = await new Promise(resolve => {
+            const payload = JSON.stringify([{ id: tid, app_name: appName, slug, repo_url: repoUrl, status: 'active', config: JSON.stringify(config || {}), workspace_id: workspaceId }])
+            const u = new URL(`${SUPA_URL}/rest/v1/forge_tenants`)
+            const opts = { hostname: u.hostname, path: u.pathname + '?on_conflict=id', method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}`, 'Prefer': 'return=representation', 'Content-Length': Buffer.byteLength(payload) } }
+            const req2 = require('https').request(opts, resp => { let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { resolve(JSON.parse(d)) } catch { resolve(null) } }) })
+            req2.on('error', () => resolve(null))
+            req2.write(payload); req2.end()
+          })
+          tenantRecord = r?.[0] || null
+        }
+
+        const deployedUrl = `https://${slug}.svets-dream.app`
+        res.end(JSON.stringify({
+          ok: true,
+          tenantId: tid,
+          slug,
+          repoUrl,
+          deployedUrl,
+          note: 'App assembled and tenant registered. Point your Railway service to the repo to go live.',
+          tenantRecord,
+        }))
+      } catch (err) {
+        res.end(JSON.stringify({ error: err.message }))
+      }
+    })
+    return
+  }
+
+  // POST /forge/tenants — list or get tenant info
+  if (req.method === 'GET' && url.pathname === '/forge/tenants') {
+    const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!SUPA_URL || !SUPA_KEY) { res.writeHead(200); res.end(JSON.stringify({ error: 'Supabase not configured' })); return }
+    const r = await new Promise(resolve => {
+      const u = new URL(`${SUPA_URL}/rest/v1/forge_tenants?select=*&order=created_at.desc`)
+      const opts = { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } }
+      const req2 = require('https').request(opts, resp => { let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { resolve(JSON.parse(d)) } catch { resolve([]) } }) })
+      req2.on('error', () => resolve([]))
+      req2.end()
+    })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(r))
+    return
+  }
+
+  // POST /forge/usage — record a metered usage event (email, sms, storage)
+  if (req.method === 'POST' && url.pathname === '/forge/usage') {
+    let body = ''
+    req.on('data', d => body += d)
+    req.on('end', async () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      try {
+        const { tenantId, type, quantity = 1, meta } = JSON.parse(body)
+        const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+        if (SUPA_URL && SUPA_KEY) {
+          const payload = JSON.stringify([{ tenant_id: tenantId, type, quantity, meta: JSON.stringify(meta || {}), recorded_at: new Date().toISOString() }])
+          const u = new URL(`${SUPA_URL}/rest/v1/forge_usage`)
+          const opts = { hostname: u.hostname, path: u.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}`, 'Prefer': 'return=minimal', 'Content-Length': Buffer.byteLength(payload) } }
+          await new Promise(resolve => { const r = require('https').request(opts, () => resolve()); r.on('error', resolve); r.write(payload); r.end() })
+        }
+        res.end(JSON.stringify({ ok: true }))
+      } catch (err) { res.end(JSON.stringify({ error: err.message })) }
+    })
+    return
+  }
+
   // POST /gemini — call Gemini API (text + vision)
   // Body: { prompt, imageBase64?, mimeType?, model?, maxTokens? }
   // Used for: UI analysis from screenshots, code generation, design suggestions

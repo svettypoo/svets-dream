@@ -155,15 +155,19 @@ export default function ForgePage() {
     setDeploying(true)
     setDeployResult(null)
     try {
-      // Deploy via execution server — runs vercel --yes in the app directory
-      const res = await fetch(`${RAILWAY_URL}/run`, {
+      const res = await fetch(`${RAILWAY_URL}/forge/deploy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
-        body: JSON.stringify({ command: 'npx vercel --yes 2>&1 | tail -5', cwd: result.appPath }),
+        body: JSON.stringify({
+          workspaceId: wsId.current,
+          appName: result.appName,
+          appPath: result.appPath,
+          config,
+        }),
       })
-      const text = await res.text()
-      const urlMatch = text.match(/https:\/\/\S+\.vercel\.app/)
-      setDeployResult({ ok: !!urlMatch, output: text, url: urlMatch ? urlMatch[0] : null })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setDeployResult({ ok: true, url: data.deployedUrl, tenantId: data.tenantId, repoUrl: data.repoUrl })
     } catch (err) {
       setDeployResult({ ok: false, output: err.message, url: null })
     } finally {
@@ -184,6 +188,7 @@ export default function ForgePage() {
         <span style={{ color: '#1e293b' }}>|</span>
         <span style={{ fontSize: 16, fontWeight: 800, color: '#f59e0b', letterSpacing: '-0.3px' }}>⚒ Forge</span>
         <span style={{ fontSize: 11, color: '#334155' }}>Rapid app scaffolding with smart blocks</span>
+        <a href="/forge/my-apps" style={{ marginLeft: 8, fontSize: 11, color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}>📱 My Apps</a>
         {phase === 'building' && (
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 140, height: 4, background: '#0f172a', borderRadius: 2, overflow: 'hidden' }}>
@@ -363,10 +368,19 @@ export default function ForgePage() {
                     </div>
                   )}
                   {deployResult && (
-                    <div style={{ padding: '8px 16px', background: deployResult.ok ? '#0a1e12' : '#1a0a0a', borderBottom: `1px solid ${deployResult.ok ? '#166534' : '#450a0a'}` }}>
-                      {deployResult.url
-                        ? <span style={{ fontSize: 11, color: '#4ade80' }}>🚀 Deployed: <a href={deployResult.url} target="_blank" rel="noreferrer" style={{ color: '#4ade80' }}>{deployResult.url}</a></span>
-                        : <span style={{ fontSize: 11, color: '#f87171' }}>Deploy output: {deployResult.output?.slice(0, 200)}</span>}
+                    <div style={{ padding: '10px 16px', background: deployResult.ok ? '#0a1e12' : '#1a0a0a', borderBottom: `1px solid ${deployResult.ok ? '#166534' : '#450a0a'}`, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                      {deployResult.ok ? (
+                        <>
+                          <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 700 }}>✓ Registered as managed app</span>
+                          <span style={{ fontSize: 11, color: '#475569' }}>Tenant: {deployResult.tenantId}</span>
+                          {deployResult.repoUrl && <a href={deployResult.repoUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#475569' }}>📦 Private repo</a>}
+                          <a href="/forge/my-apps" style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 6, background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700, textDecoration: 'none' }}>
+                            View in My Apps →
+                          </a>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#f87171' }}>Deploy error: {deployResult.output?.slice(0, 200)}</span>
+                      )}
                     </div>
                   )}
                   <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
