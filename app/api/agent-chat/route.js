@@ -1384,9 +1384,8 @@ Never skip these. The user is watching and needs to know you're working.`,
 
         controller.close()
       } catch (err) {
-        // Log server-side but never expose raw API errors to the user
-        console.error(`[agent-chat] ${agent.label} error:`, err.message)
-        // Silently close — partial response already streamed is enough context
+        console.error(`[agent-chat] ${agent?.label} error:`, err.message, err.stack?.split('\n')[1])
+        send(`\n\n❌ **Agent error:** ${err.message}`)
         controller.close()
       }
     },
