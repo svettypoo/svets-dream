@@ -382,12 +382,31 @@ const server = http.createServer((req, res) => {
     return
   }
 
-  // GET /ls?path=...
+  // GET /ls?path=...&recursive=true
   if (req.method === 'GET' && url.pathname === '/ls') {
     try {
       const dirPath = resolvePath(url.searchParams.get('path'))
-      const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-      const files = entries.map(e => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file' }))
+      const recursive = url.searchParams.get('recursive') === 'true'
+
+      function readTree(dir, depth = 0) {
+        if (depth > 6) return [] // safety limit
+        const entries = fs.readdirSync(dir, { withFileTypes: true })
+        return entries
+          .filter(e => e.name !== '__BACKUPS__') // never expose backups
+          .map(e => {
+            const fullPath = path.join(dir, e.name)
+            const isDir = e.isDirectory()
+            let size = null
+            if (!isDir) {
+              try { size = fs.statSync(fullPath).size } catch {}
+            }
+            const node = { name: e.name, type: isDir ? 'dir' : 'file', size }
+            if (isDir && recursive) node.children = readTree(fullPath, depth + 1)
+            return node
+          })
+      }
+
+      const files = readTree(dirPath)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(files))
     } catch (err) {

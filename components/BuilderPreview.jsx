@@ -1,7 +1,97 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
-export default function BuilderPreview({ visible }) {
+const EXEC_URL = 'https://svets-dream-production.up.railway.app'
+const EXEC_TOKEN = 'svets-exec-token-2026'
+
+// File type icons
+function fileIcon(name) {
+  if (!name) return '📄'
+  const ext = name.split('.').pop()?.toLowerCase()
+  const map = {
+    html: '🌐', htm: '🌐',
+    js: '📜', jsx: '📜', ts: '📜', tsx: '📜', mjs: '📜',
+    css: '🎨', scss: '🎨', sass: '🎨',
+    json: '{}', jsonc: '{}',
+    md: '📝', mdx: '📝',
+    py: '🐍',
+    sh: '⚙', bash: '⚙',
+    png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', svg: '🖼', ico: '🖼', webp: '🖼',
+    pdf: '📕',
+    env: '🔒', gitignore: '🙈',
+    toml: '⚙', yaml: '⚙', yml: '⚙',
+    lock: '🔒',
+    txt: '📄',
+  }
+  return map[ext] || '📄'
+}
+
+function formatSize(bytes) {
+  if (bytes == null) return ''
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`
+  return `${(bytes / 1024 / 1024).toFixed(1)}M`
+}
+
+// Recursive tree node
+function TreeNode({ node, depth = 0, execUrl, execToken, onSelectFile, selectedPath, wsPath }) {
+  const [open, setOpen] = useState(depth < 2) // auto-expand first 2 levels
+  const isDir = node.type === 'dir'
+  const indent = depth * 14
+  const fullPath = wsPath ? `${wsPath}/${node.name}` : node.name
+
+  return (
+    <div>
+      <div
+        onClick={() => isDir ? setOpen(o => !o) : onSelectFile(fullPath, node.name)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          padding: `3px 8px 3px ${8 + indent}px`,
+          cursor: 'pointer', borderRadius: 4,
+          background: selectedPath === fullPath ? 'rgba(99,102,241,0.18)' : 'transparent',
+          transition: 'background 0.1s',
+          userSelect: 'none',
+        }}
+        onMouseEnter={e => { if (selectedPath !== fullPath) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+        onMouseLeave={e => { if (selectedPath !== fullPath) e.currentTarget.style.background = 'transparent' }}
+      >
+        {isDir ? (
+          <span style={{ fontSize: 9, color: '#475569', width: 10, flexShrink: 0 }}>{open ? '▾' : '▸'}</span>
+        ) : (
+          <span style={{ width: 10, flexShrink: 0 }} />
+        )}
+        <span style={{ fontSize: 12, flexShrink: 0 }}>
+          {isDir ? (open ? '📂' : '📁') : fileIcon(node.name)}
+        </span>
+        <span style={{
+          fontSize: 11.5, color: isDir ? '#cbd5e1' : '#94a3b8',
+          fontFamily: '"Cascadia Code", "Fira Code", monospace',
+          flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          fontWeight: isDir ? 600 : 400,
+        }}>
+          {node.name}
+        </span>
+        {!isDir && node.size != null && (
+          <span style={{ fontSize: 9.5, color: '#334155', flexShrink: 0 }}>{formatSize(node.size)}</span>
+        )}
+      </div>
+      {isDir && open && node.children?.map((child, i) => (
+        <TreeNode
+          key={i}
+          node={child}
+          depth={depth + 1}
+          execUrl={execUrl}
+          execToken={execToken}
+          onSelectFile={onSelectFile}
+          selectedPath={selectedPath}
+          wsPath={fullPath}
+        />
+      ))}
+    </div>
+  )
+}
+
+export default function BuilderPreview({ visible, workspaceId }) {
   const [tab, setTab] = useState('terminal')
   const [entries, setEntries] = useState([])
   const [previewUrl, setPreviewUrl] = useState('')
@@ -9,6 +99,14 @@ export default function BuilderPreview({ visible }) {
   const [urlInput, setUrlInput] = useState('http://localhost:3000')
   const bottomRef = useRef(null)
   const entryIdRef = useRef(0)
+
+  // File tree state
+  const [fileTree, setFileTree] = useState([])
+  const [selectedFilePath, setSelectedFilePath] = useState(null)
+  const [selectedFileContent, setSelectedFileContent] = useState(null)
+  const [fileLoading, setFileLoading] = useState(false)
+  const [treeLoading, setTreeLoading] = useState(false)
+  const treeRefreshTimer = useRef(null)
 
   useEffect(() => {
     function onBuild(e) {
@@ -36,12 +134,59 @@ export default function BuilderPreview({ visible }) {
     if (tab === 'terminal') bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [entries, tab])
 
+  // Fetch file tree from Railway when workspaceId is available
+  const fetchTree = useCallback(async () => {
+    if (!workspaceId) return
+    setTreeLoading(true)
+    try {
+      const res = await fetch(
+        `${EXEC_URL}/ls?path=/root/workspace/${workspaceId}&recursive=true`,
+        { headers: { Authorization: `Bearer ${EXEC_TOKEN}` } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setFileTree(Array.isArray(data) ? data : [])
+      }
+    } catch {}
+    setTreeLoading(false)
+  }, [workspaceId])
+
+  // Auto-refresh tree when files tab is active
+  useEffect(() => {
+    if (tab === 'files' && workspaceId) {
+      fetchTree()
+      treeRefreshTimer.current = setInterval(fetchTree, 5000)
+    }
+    return () => { if (treeRefreshTimer.current) clearInterval(treeRefreshTimer.current) }
+  }, [tab, workspaceId, fetchTree])
+
+  // Fetch file content when user clicks a file
+  async function handleSelectFile(fullPath, name) {
+    setSelectedFilePath(fullPath)
+    setSelectedFileContent(null)
+    setFileLoading(true)
+    try {
+      const res = await fetch(
+        `${EXEC_URL}/read?path=/root/workspace/${workspaceId}/${fullPath}`,
+        { headers: { Authorization: `Bearer ${EXEC_TOKEN}` } }
+      )
+      if (res.ok) {
+        const text = await res.text()
+        setSelectedFileContent(text)
+      } else {
+        setSelectedFileContent('(could not read file)')
+      }
+    } catch {
+      setSelectedFileContent('(error reading file)')
+    }
+    setFileLoading(false)
+  }
+
   if (!visible) return null
 
-  // Deduplicate by path — keep latest write only
+  // Deduplicate by path — keep latest write only (used in terminal tab)
   const filesMap = {}
   entries.filter(e => e.type === 'file').forEach(e => { filesMap[e.data.path] = e })
-  const files = Object.values(filesMap)
 
   return (
     <div style={{
@@ -60,6 +205,10 @@ export default function BuilderPreview({ visible }) {
           to { transform: translateX(0); opacity: 1; }
         }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        .tree-scroll::-webkit-scrollbar { display: none; }
+        .file-content::-webkit-scrollbar { width: 5px; }
+        .file-content::-webkit-scrollbar-track { background: transparent; }
+        .file-content::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 3px; }
       `}</style>
 
       {/* Header */}
@@ -145,40 +294,95 @@ export default function BuilderPreview({ visible }) {
         </div>
       )}
 
-      {/* Files tab */}
+      {/* Files tab — tree view */}
       {tab === 'files' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px', scrollbarWidth: 'none' }}>
-          {files.length === 0 ? (
-            <div style={{ color: '#334155', marginTop: 32, textAlign: 'center', fontSize: 12, lineHeight: 1.7 }}>
-              <div style={{ fontSize: 20, opacity: 0.3, marginBottom: 8 }}>📂</div>
-              No files created yet
-            </div>
-          ) : (
-            files.map(e => (
-              <div key={e.id} style={{ marginBottom: 14 }}>
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  fontSize: 11, color: '#fbbf24',
-                  fontFamily: '"Cascadia Code", monospace',
-                  background: 'rgba(251,191,36,0.08)', padding: '3px 9px', borderRadius: 5, marginBottom: 6,
-                }}>
-                  📄 {e.data.path}
-                </div>
-                {e.data.content && (
-                  <pre style={{
-                    margin: 0, background: '#040b14', border: '1px solid #0f2030',
-                    borderRadius: 6, padding: '8px 10px', color: '#94a3b8',
-                    fontSize: 11, lineHeight: 1.5, overflowX: 'auto',
-                    maxHeight: 220, overflowY: 'auto',
-                    fontFamily: '"Cascadia Code", "Fira Code", monospace',
-                    whiteSpace: 'pre',
-                  }}>
-                    {e.data.content.length > 2400 ? e.data.content.slice(0, 2400) + '\n… (truncated)' : e.data.content}
-                  </pre>
-                )}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Tree + file preview split */}
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            {/* Left: file tree */}
+            <div style={{
+              width: selectedFilePath ? 180 : '100%',
+              flexShrink: 0,
+              overflowY: 'auto',
+              borderRight: selectedFilePath ? '1px solid #0f2030' : 'none',
+              padding: '8px 0',
+              scrollbarWidth: 'none',
+            }} className="tree-scroll">
+              {/* Toolbar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px 6px', borderBottom: '1px solid #0d1f35' }}>
+                <span style={{ fontSize: 9, color: '#334155', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {workspaceId ? `ws/${workspaceId.slice(0, 16)}` : 'no workspace'}
+                </span>
+                <button
+                  onClick={fetchTree}
+                  disabled={treeLoading}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: treeLoading ? '#334155' : '#475569', fontSize: 11, padding: '1px 4px', borderRadius: 3 }}
+                  title="Refresh"
+                >
+                  {treeLoading ? '…' : '↻'}
+                </button>
               </div>
-            ))
-          )}
+
+              {!workspaceId ? (
+                <div style={{ color: '#334155', padding: 20, textAlign: 'center', fontSize: 11.5, lineHeight: 1.7 }}>
+                  <div style={{ fontSize: 20, opacity: 0.3, marginBottom: 8 }}>📂</div>
+                  Start a build to see files
+                </div>
+              ) : fileTree.length === 0 && !treeLoading ? (
+                <div style={{ color: '#334155', padding: 20, textAlign: 'center', fontSize: 11.5, lineHeight: 1.7 }}>
+                  <div style={{ fontSize: 20, opacity: 0.3, marginBottom: 8 }}>📂</div>
+                  Workspace is empty
+                </div>
+              ) : (
+                fileTree.map((node, i) => (
+                  <TreeNode
+                    key={i}
+                    node={node}
+                    depth={0}
+                    onSelectFile={handleSelectFile}
+                    selectedPath={selectedFilePath}
+                    wsPath=""
+                  />
+                ))
+              )}
+            </div>
+
+            {/* Right: file content preview */}
+            {selectedFilePath && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+                {/* File header */}
+                <div style={{ padding: '6px 10px', borderBottom: '1px solid #0d1f35', display: 'flex', alignItems: 'center', gap: 6, background: '#040b14' }}>
+                  <span style={{ fontSize: 11, color: '#fbbf24', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {selectedFilePath.split('/').pop()}
+                  </span>
+                  <button
+                    onClick={() => { setSelectedFilePath(null); setSelectedFileContent(null) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', fontSize: 13, padding: '0 2px', lineHeight: 1 }}
+                    title="Close"
+                  >×</button>
+                </div>
+                {/* Content */}
+                <div
+                  className="file-content"
+                  style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', padding: '8px 10px' }}
+                >
+                  {fileLoading ? (
+                    <div style={{ color: '#334155', fontSize: 11, padding: 12 }}>Loading…</div>
+                  ) : selectedFileContent != null ? (
+                    <pre style={{
+                      margin: 0, color: '#94a3b8', fontSize: 10.5, lineHeight: 1.6,
+                      fontFamily: '"Cascadia Code", "Fira Code", monospace',
+                      whiteSpace: 'pre', wordBreak: 'normal',
+                    }}>
+                      {selectedFileContent.length > 8000
+                        ? selectedFileContent.slice(0, 8000) + '\n… (truncated)'
+                        : selectedFileContent}
+                    </pre>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

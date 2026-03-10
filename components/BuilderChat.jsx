@@ -227,6 +227,9 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   useImperativeHandle(ref, () => ({
     addScreenshotMessage({ screenshot, assessment, passed }) {
       setMessages(prev => [...prev, { role: 'assistant', content: assessment, screenshot, passed, isAssessment: true }])
+    },
+    getWorkspaceId() {
+      return workspaceIdRef.current
     }
   }))
 

@@ -124,6 +124,7 @@ export default function Dashboard() {
   const [introNodeIds, setIntroNodeIds] = useState(new Set())
   const [agentChats, setAgentChats] = useState({}) // nodeId → message string
   const [activeAgents, setActiveAgents] = useState(new Set())
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null)
   const revealTimersRef = useRef([])
   const chartRef = useRef(null)
   const chatRef = useRef(null)
@@ -139,6 +140,10 @@ export default function Dashboard() {
   useEffect(() => {
     function onBuild() {
       setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, builderActive: true } : t))
+      // Capture workspaceId from chat so BuilderPreview can fetch the file tree
+      if (chatRef.current?.getWorkspaceId) {
+        setCurrentWorkspaceId(chatRef.current.getWorkspaceId())
+      }
     }
     window.addEventListener('builderUpdate', onBuild)
     return () => window.removeEventListener('builderUpdate', onBuild)
@@ -380,7 +385,7 @@ export default function Dashboard() {
         </div>
 
         {/* Build Preview — always visible */}
-        <BuilderPreview visible={true} />
+        <BuilderPreview visible={true} workspaceId={currentWorkspaceId} />
 
         {/* Right: Activity Feed */}
         <ActivityFeed />
