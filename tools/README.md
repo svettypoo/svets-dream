@@ -5,7 +5,8 @@ These are NOT things agents need to code themselves — they are ready to use.
 
 | Tool | File | What It Does |
 |------|------|--------------|
-| **Agent Screenshot Tool** | [agent-screenshot-tool.md](./agent-screenshot-tool.md) | Browser automation: navigate, click, fill, read, screenshot |
+| **Screenshot Tool** | [screenshot-tool.md](./screenshot-tool.md) | One-call URL screenshot — give a URL, get an inline image. Use this to verify deploys or research competitors |
+| **Browser Automation Tool** | [agent-screenshot-tool.md](./agent-screenshot-tool.md) | Full browser control: navigate, click, fill, read, screenshot, key_press — use when you need multi-step interaction |
 
 ---
 

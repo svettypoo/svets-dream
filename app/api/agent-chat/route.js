@@ -260,6 +260,18 @@ export async function POST(req) {
       description: 'Close the browser session and free memory. Call this when you are done with all browser tasks.',
       input_schema: { type: 'object', properties: {}, required: [] },
     },
+    {
+      name: 'screenshot_url',
+      description: 'Navigate to any URL and take a screenshot in one step. The screenshot renders inline in the chat. Use this to verify a deployed site, check a competitor, or confirm a UI change. Faster than browser_navigate + browser_screenshot separately.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Full URL to screenshot (e.g. https://myapp.vercel.app)' },
+          fullPage: { type: 'boolean', description: 'Capture full scrollable page vs viewport only (default false)' },
+        },
+        required: ['url'],
+      },
+    },
   ]
 
   // ── Cross-agent tools (available to everyone) ─────────────────────────────
@@ -696,7 +708,45 @@ Never skip these. The user is watching and needs to know you're working.`,
         return `Error: ${err.message}`
       }
 
-    } else if (['browser_navigate', 'browser_screenshot', 'browser_click', 'browser_fill', 'browser_read', 'browser_close'].includes(name)) {
+    } else if (name === 'screenshot_url') {
+      const execUrl = process.env.EXECUTION_SERVER_URL
+      if (!execUrl) return 'screenshot_url requires EXECUTION_SERVER_URL to be configured.'
+      const execToken = process.env.EXEC_TOKEN || 'svets-exec-token-2026'
+      send(`\n\n📸 **Screenshot:** \`${input.url}\``)
+      try {
+        // Navigate first, then screenshot
+        const navRes = await fetch(`${execUrl}/browser`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${execToken}` },
+          body: JSON.stringify({ action: 'navigate', sessionId: `screenshot-${agentId}`, url: input.url }),
+        })
+        const navResult = await navRes.json()
+        if (!navResult.ok) {
+          send(`\n\n❌ **Screenshot Error:** ${navResult.error}`)
+          return `Error: ${navResult.error}`
+        }
+        const shotRes = await fetch(`${execUrl}/browser`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${execToken}` },
+          body: JSON.stringify({ action: 'screenshot', sessionId: `screenshot-${agentId}`, fullPage: input.fullPage || false }),
+        })
+        const shotResult = await shotRes.json()
+        if (shotResult.screenshot) {
+          send(`\n\n![screenshot](data:image/png;base64,${shotResult.screenshot})`)
+        }
+        // Close session after use
+        await fetch(`${execUrl}/browser`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${execToken}` },
+          body: JSON.stringify({ action: 'close', sessionId: `screenshot-${agentId}` }),
+        }).catch(() => {})
+        return `Screenshot of ${input.url} captured. Title: ${navResult.title || ''}. URL: ${navResult.url || input.url}`
+      } catch (err) {
+        send(`\n\n❌ **Screenshot Error:** ${err.message}`)
+        return `Error: ${err.message}`
+      }
+
+    } else if (['browser_navigate', 'browser_screenshot', 'browser_click', 'browser_fill', 'browser_read', 'browser_close', 'browser_key_press'].includes(name)) {
       const execUrl = process.env.EXECUTION_SERVER_URL
       if (!execUrl) {
         return 'Browser tools require EXECUTION_SERVER_URL to be configured.'
@@ -712,6 +762,7 @@ Never skip these. The user is watching and needs to know you're working.`,
         fill: `Filling "${input.selector}" with "${input.value?.slice(0, 40)}"`,
         read: `Reading page content`,
         close: 'Closing browser session',
+        key_press: `Pressing "${input.key || 'Enter'}"`,
       }
       send(`\n\n🌐 **Browser:** ${labels[action]}...`)
 
