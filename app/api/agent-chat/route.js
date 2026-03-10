@@ -1313,11 +1313,11 @@ Never skip these. The user is watching and needs to know you're working.`,
           }
           const thinkingConfig = resolveThinking(thinkingDepth, forceToolCall)
 
-          // Max output tokens: claude-opus-4-6 supports up to 128K output
-          const maxTokens = 128000
+          // Max output tokens: claude-sonnet-4-6 supports up to 64K output
+          const maxTokens = 64000
 
           const apiStream = anthropic.messages.stream({
-            model: 'claude-opus-4-6',
+            model: 'claude-sonnet-4-6',
             max_tokens: maxTokens,
             thinking: thinkingConfig,
             tools,
@@ -1370,7 +1370,7 @@ Never skip these. The user is watching and needs to know you're working.`,
         if (userId) {
           await recordTransaction({
             userId,
-            model: 'claude-opus-4-6',
+            model: 'claude-sonnet-4-6',
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
             agentName: agent.label,
