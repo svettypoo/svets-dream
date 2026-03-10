@@ -211,16 +211,15 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
     loadMemories()
   }, [view])
 
-  // If opened with a kickoff message and no history, switch to chat and auto-send
+  // If opened with a kickoff message and no history, switch to chat and pre-fill input
   const kickoffFiredRef = useRef(false)
   useEffect(() => {
     if (!initialMessage || kickoffFiredRef.current) return
     if (!historyLoaded) return
-    // Only auto-send if no existing history
     if (messages.length > 0) return
     kickoffFiredRef.current = true
     setView('chat')
-    setTimeout(() => sendMessage(initialMessage), 100)
+    setInput(initialMessage)
   }, [historyLoaded, initialMessage])
 
   useEffect(() => {
@@ -264,20 +263,29 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
     if (!rawText) return null
     // Strip internal signaling markers before display
     const text = rawText.replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
-    const parts = []
+    // Split into paragraphs (double newline), then handle images within each paragraph
     const imgRe = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g
-    let last = 0, m
-    while ((m = imgRe.exec(text)) !== null) {
-      if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) })
-      parts.push({ type: 'img', alt: m[1], src: m[2] })
-      last = m.index + m[0].length
-    }
-    if (last < text.length) parts.push({ type: 'text', value: text.slice(last) })
-    return parts.map((p, i) => p.type === 'img'
-      ? <img key={i} src={p.src} alt={p.alt || 'screenshot'}
-          style={{ maxWidth: '100%', borderRadius: 8, marginTop: 8, display: 'block', border: '1px solid rgba(255,255,255,0.1)' }} />
-      : <span key={i} style={{ whiteSpace: 'pre-wrap' }}>{p.value}</span>
-    )
+    const paragraphs = text.split(/\n{2,}/).filter(p => p.trim())
+    return paragraphs.map((para, pi) => {
+      const parts = []
+      let last = 0, m
+      imgRe.lastIndex = 0
+      while ((m = imgRe.exec(para)) !== null) {
+        if (m.index > last) parts.push({ type: 'text', value: para.slice(last, m.index) })
+        parts.push({ type: 'img', alt: m[1], src: m[2] })
+        last = m.index + m[0].length
+      }
+      if (last < para.length) parts.push({ type: 'text', value: para.slice(last) })
+      return (
+        <p key={pi} style={{ margin: 0, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+          {parts.map((p, i) => p.type === 'img'
+            ? <img key={i} src={p.src} alt={p.alt || 'screenshot'}
+                style={{ maxWidth: '100%', borderRadius: 8, marginTop: 8, display: 'block', border: '1px solid rgba(255,255,255,0.1)' }} />
+            : <span key={i}>{p.value}</span>
+          )}
+        </p>
+      )
+    })
   }
 
   function emit(type, text) {
@@ -676,7 +684,7 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
                     borderBottomLeftRadius: m.role === 'assistant' ? 2 : 10,
                   }}>
                     {m.content
-                      ? renderContent(m.content)
+                      ? <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{renderContent(m.content)}</div>
                       : (loading && i === messages.length - 1 ? <span style={{ opacity: 0.4 }}>▋</span> : '')
                     }
                   </div>
