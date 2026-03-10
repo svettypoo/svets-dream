@@ -704,8 +704,24 @@ export async function POST(req) {
     },
   }
 
+  // ── Workflow scheduling tool (OpenClaw cron) ──────────────────────────────
+  const scheduleTaskTool = {
+    name: 'schedule_task',
+    description: `Schedule a recurring task to run automatically on a fixed interval. Use when the user wants something to happen repeatedly — e.g. "remind me every morning to review my tasks", "check the server health every hour", "send me a weekly summary every Monday". The scheduled task will fire automatically without the user needing to be present.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Short name for the workflow (e.g. "Morning task review", "Hourly health check")' },
+        task: { type: 'string', description: 'The exact task instruction to run on schedule (e.g. "Review all open tasks and send a status summary")' },
+        interval_minutes: { type: 'integer', minimum: 5, description: 'How often to run in minutes (e.g. 60 = hourly, 1440 = daily, 10080 = weekly)' },
+        description: { type: 'string', description: 'Optional human-readable explanation of what this workflow does' },
+      },
+      required: ['name', 'task', 'interval_minutes'],
+    },
+  }
+
   const baseTools = isTopAgent ? managerTools : implementerTools
-  const tools = [...baseTools, taskWriteTool, taskListTool, taskUpdateTool, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, searchMemoryTool, blackboardReadTool, blackboardWriteTool, requestApprovalTool, structuredOutputTool, ...skillTools]
+  const tools = [...baseTools, taskWriteTool, taskListTool, taskUpdateTool, scheduleTaskTool, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, searchMemoryTool, blackboardReadTool, blackboardWriteTool, requestApprovalTool, structuredOutputTool, ...skillTools]
 
   // ── System prompt ─────────────────────────────────────────────────────────
   const globalRules = rules
@@ -1576,6 +1592,31 @@ Every agent MUST post a brief message at the start and end of work so the user s
         return `Task "${data?.title}" → ${data?.status}`
       } catch (err) {
         return `task_update error: ${err.message}`
+      }
+
+    } else if (name === 'schedule_task') {
+      try {
+        const svc = createServiceClient()
+        const nextRun = new Date(Date.now() + input.interval_minutes * 60 * 1000).toISOString()
+        const { data } = await svc.from('agent_workflows').insert({
+          name: input.name,
+          description: input.description || null,
+          task: input.task,
+          interval_minutes: input.interval_minutes,
+          workspace_id: workspaceId || 'global',
+          next_run: nextRun,
+          active: true,
+        }).select().maybeSingle()
+        const freq = input.interval_minutes >= 1440
+          ? `every ${input.interval_minutes / 1440} day(s)`
+          : input.interval_minutes >= 60
+          ? `every ${input.interval_minutes / 60} hour(s)`
+          : `every ${input.interval_minutes} min`
+        send(`\n\n⏰ **Workflow scheduled:** "${input.name}" — runs ${freq}`)
+        send(`\n\n<!--WORKFLOW_CREATED:${JSON.stringify({ id: data?.id, name: input.name, interval_minutes: input.interval_minutes, next_run: nextRun })}-->`)
+        return `Workflow "${input.name}" scheduled (${freq}). First run at ${nextRun}.`
+      } catch (err) {
+        return `schedule_task error: ${err.message}`
       }
 
     } else if (skillTools.some(t => t.name === name)) {

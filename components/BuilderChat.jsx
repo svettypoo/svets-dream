@@ -330,11 +330,12 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
           if (done) break
           const chunk = decoder.decode(value, { stream: true })
           assistantText += chunk
-          // Parse TASK markers (quick mode)
+          // Parse TASK + WORKFLOW markers (quick mode)
           const taskUpdateMatches = [...assistantText.matchAll(/<!--TASK_UPDATE:(\{[^>]+\})-->/g)]
           taskUpdateMatches.forEach(m => { try { window.dispatchEvent(new CustomEvent('taskUpdate', { detail: JSON.parse(m[1]) })) } catch {} })
           const taskListMatch = assistantText.match(/<!--TASK_LIST:(\[[^\]]*(?:\][^\]]*)*\])-->/)
           if (taskListMatch) { try { window.dispatchEvent(new CustomEvent('taskList', { detail: JSON.parse(taskListMatch[1]) })) } catch {} }
+          if (assistantText.includes('<!--WORKFLOW_CREATED:')) window.dispatchEvent(new CustomEvent('workflowCreated'))
           const display = assistantText
             .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
             .replace(/<!--PREVIEW_HTML:[A-Za-z0-9+/=]*-->/g, '')
@@ -345,6 +346,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             .replace(/<!--TOKEN_USAGE:\d+-->/g, '')
             .replace(/<!--TASK_UPDATE:[^>]*-->/g, '')
             .replace(/<!--TASK_LIST:[^>]*-->/g, '')
+            .replace(/<!--WORKFLOW_CREATED:[^>]*-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
           // Fire preview events
           const fileMatches = [...assistantText.matchAll(/<!--FILE_ENTRY:(\{[^>]+\})-->/g)]
@@ -443,6 +445,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
           taskUpdateMatchesCTO.forEach(m => { try { window.dispatchEvent(new CustomEvent('taskUpdate', { detail: JSON.parse(m[1]) })) } catch {} })
           const taskListMatchCTO = assistantText.match(/<!--TASK_LIST:(\[[^\]]*(?:\][^\]]*)*\])-->/)
           if (taskListMatchCTO) { try { window.dispatchEvent(new CustomEvent('taskList', { detail: JSON.parse(taskListMatchCTO[1]) })) } catch {} }
+          if (assistantText.includes('<!--WORKFLOW_CREATED:')) window.dispatchEvent(new CustomEvent('workflowCreated'))
           // Strip all markers before displaying
           const display = assistantText
             .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
@@ -454,6 +457,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             .replace(/<!--TOKEN_USAGE:\d+-->/g, '')
             .replace(/<!--TASK_UPDATE:[^>]*-->/g, '')
             .replace(/<!--TASK_LIST:[^>]*-->/g, '')
+            .replace(/<!--WORKFLOW_CREATED:[^>]*-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
         }
 
