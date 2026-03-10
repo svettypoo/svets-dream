@@ -473,9 +473,10 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
           //   - With thinking=8000 + max_tokens=16000, only 8000 tokens remain for HTML → truncated tool call → content=undefined
           const forceToolCall = isTopAgent && iter < 5
           const toolChoice = forceToolCall ? { type: 'any' } : { type: 'auto' }
+          // budget_tokens deprecated on claude-opus-4-6 — use effort instead
           const thinkingConfig = (!isTopAgent || forceToolCall)
             ? { type: 'disabled' }
-            : { type: 'enabled', budget_tokens: 32000 }
+            : { type: 'enabled', effort: 'high' }
 
           // Max output tokens: claude-opus-4-6 supports up to 128K output
           const maxTokens = 128000
