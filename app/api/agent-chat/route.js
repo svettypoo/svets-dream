@@ -1384,8 +1384,8 @@ Never skip these. The user is watching and needs to know you're working.`,
 
         controller.close()
       } catch (err) {
-        console.error(`[agent-chat] ${agent?.label} error:`, err.message, err.stack?.split('\n')[1])
-        send(`\n\n❌ **Agent error:** ${err.message}`)
+        console.error(`[agent-chat] ${agent?.label} error:`, err.message)
+        send(`\n\n❌ **Error:** ${err.message.slice(0, 300)}`)
         controller.close()
       }
     },
