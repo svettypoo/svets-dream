@@ -475,10 +475,10 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
           const toolChoice = forceToolCall ? { type: 'any' } : { type: 'auto' }
           const thinkingConfig = (!isTopAgent || forceToolCall)
             ? { type: 'disabled' }
-            : { type: 'enabled', budget_tokens: 8000 }
+            : { type: 'enabled', budget_tokens: 32000 }
 
-          // Implementers get more tokens for actual code/HTML output (no thinking overhead)
-          const maxTokens = isTopAgent ? 16000 : 32000
+          // Max output tokens: claude-opus-4-6 supports up to 128K output
+          const maxTokens = 128000
 
           const apiStream = anthropic.messages.stream({
             model: 'claude-opus-4-6',
