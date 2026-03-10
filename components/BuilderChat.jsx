@@ -317,25 +317,19 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
 
     const org = currentOrgRef.current
 
-    // ── Quick mode: skip CTO, go directly to implementer ──
+    // ── Quick mode: Railway Claude Code SDK (always warm, no cold start) ──
     if (quickMode) {
-      const quickAgent = {
-        id: 'quick-builder', label: 'Builder',
-        role: 'Senior Full-Stack Engineer', level: 1,
-        description: 'Build exactly what the user requests. Report results and the preview URL directly to the user.',
-      }
+      const RAILWAY_URL = 'https://svets-dream-production.up.railway.app'
       // Instant ACK — show empty bubble immediately before fetch even starts
       setMessages(prev => [...prev, { role: 'assistant', content: '' }])
       try {
-        const res = await fetch('/api/agent-chat', {
+        const res = await fetch(`${RAILWAY_URL}/agent-stream`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer svets-exec-token-2026' },
           signal: abortRef.current?.signal,
           body: JSON.stringify({
-            agent: quickAgent,
             messages: chatMessages,
             workspaceId: workspaceIdRef.current,
-            quickMode: true,
           }),
         })
         const reader = res.body.getReader()

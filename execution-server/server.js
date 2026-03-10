@@ -515,6 +515,133 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // POST /agent-stream — run Claude Code SDK agent, stream text back
+  // Bypasses Vercel entirely: always-warm Railway server, no cold start
+  // Body: { messages: [{role, content}][], workspaceId?: string }
+  // Returns: text/plain streaming chunks (same protocol as Vercel /api/agent-chat)
+  if (req.method === 'POST' && url.pathname === '/agent-stream') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      let messages, workspaceId
+      try {
+        const parsed = JSON.parse(body)
+        messages = parsed.messages || []
+        workspaceId = parsed.workspaceId || 'default'
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid JSON' }))
+        return
+      }
+
+      const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xocfduqugghailalzlqy.supabase.co'
+      // Read JWT service role key from file (written once at setup)
+      let serviceKey = ''
+      try { serviceKey = fs.readFileSync('/root/workspace/.supabase-jwt', 'utf8').trim() } catch {}
+      if (!serviceKey) serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+
+      // Load memories + projects from Supabase for system prompt context
+      async function supabaseGet(table, params) {
+        return new Promise(resolve => {
+          const https = require('https')
+          const qs = new URLSearchParams(params).toString()
+          const reqUrl = `${SUPABASE_URL}/rest/v1/${table}?${qs}`
+          const options = new URL(reqUrl)
+          https.get({ hostname: options.hostname, path: options.pathname + options.search, headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }, r => {
+            let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve(JSON.parse(d)) } catch { resolve([]) } })
+          }).on('error', () => resolve([]))
+        })
+      }
+
+      const [memories, projects] = await Promise.all([
+        supabaseGet('agent_memories', { user_id: 'eq.svet', order: 'importance.desc,created_at.desc', limit: 15, select: 'content,type' }),
+        supabaseGet('projects', { order: 'created_at.desc', limit: 8, select: 'name,description,live_url,tech_stack,notes' }),
+      ])
+
+      const memText = Array.isArray(memories) && memories.length
+        ? memories.map(m => `[${m.type}] ${m.content}`).join('\n')
+        : ''
+      const projText = Array.isArray(projects) && projects.length
+        ? projects.map(p => `• ${p.name}${p.live_url ? ` (${p.live_url})` : ''}${p.tech_stack ? ` — ${p.tech_stack}` : ''}${p.notes ? `\n  ${p.notes}` : ''}`).join('\n')
+        : ''
+
+      const systemPrompt = [
+        'You are an autonomous AI assistant for Svet. Be direct, decisive, and efficient.',
+        memText ? `## Long-term Memory\n${memText}` : '',
+        projText ? `## Projects\n${projText}` : '',
+        `## Workspace
+Your working directory is /root/workspace/${workspaceId}. You have full access to bash, file read/write, and web search.`,
+        `## Streaming Thoughts — MANDATORY
+Think out loud in short bursts. Output a short line BEFORE each action. After each result, write 1-2 sentences before moving on. Never go silent for more than 3 seconds.`,
+        `## Task Tracking
+For simple questions (under ~15 words asking for info), answer immediately — no task tracking needed.
+For real work (build, deploy, research, write, fix), briefly acknowledge the task and start working.`,
+      ].filter(Boolean).join('\n\n')
+
+      // Build conversation history as context prefix in the prompt
+      const history = messages.slice(0, -1)
+      const lastMsg = messages[messages.length - 1]
+      const prompt = history.length > 1
+        ? `Previous conversation:\n${history.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${typeof m.content === 'string' ? m.content : m.content?.[0]?.text || ''}`).join('\n\n')}\n\nCurrent request: ${typeof lastMsg?.content === 'string' ? lastMsg.content : lastMsg?.content?.[0]?.text || ''}`
+        : typeof lastMsg?.content === 'string' ? lastMsg.content : lastMsg?.content?.[0]?.text || 'Hello'
+
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
+      })
+
+      // Abort when client disconnects
+      const controller = new AbortController()
+      req.on('close', () => controller.abort())
+
+      const cwd = path.join(WORK_DIR, workspaceId)
+      fs.mkdirSync(cwd, { recursive: true })
+
+      try {
+        const { query } = await import('@anthropic-ai/claude-agent-sdk')
+        let lastText = ''
+        for await (const event of query({
+          prompt,
+          options: {
+            cwd,
+            systemPrompt,
+            allowedTools: ['Bash', 'Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
+            permissionMode: 'bypassPermissions',
+            maxTurns: 25,
+            abortController: controller,
+            includePartialMessages: true,
+          },
+        })) {
+          if (event.type === 'stream_event') {
+            const ev = event.event
+            if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+              const text = ev.delta.text
+              if (text && !res.writableEnded) res.write(text)
+            }
+          } else if (event.type === 'assistant') {
+            // Fallback: send full assistant text if we missed stream_events
+            const content = event.message?.content
+            if (Array.isArray(content)) {
+              const newText = content.filter(b => b.type === 'text').map(b => b.text).join('')
+              if (newText.length > lastText.length && !res.writableEnded) {
+                res.write(newText.slice(lastText.length))
+                lastText = newText
+              }
+            }
+          }
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError' && !res.writableEnded) {
+          res.write(`\n\nError: ${err.message}`)
+        }
+      }
+
+      if (!res.writableEnded) res.end()
+    })
+    return
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ error: 'Not found' }))
 })
