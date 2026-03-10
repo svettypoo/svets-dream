@@ -213,6 +213,78 @@ export async function POST(req) {
         },
       },
     },
+    {
+      name: 'fetch_url',
+      description: 'Fetch any URL and return its content. Use to read documentation, check npm packages, inspect deployed sites, or call any HTTP API.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Full URL to fetch' },
+          format: { type: 'string', enum: ['text', 'json', 'raw'], description: 'text = HTML stripped to readable text (default), json = parsed JSON, raw = full response' },
+        },
+        required: ['url'],
+      },
+    },
+    {
+      name: 'web_search',
+      description: 'Search the web for any topic. Returns results with titles, URLs, and summaries. Use to find docs, research competitors, look up APIs, check error messages.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'grep_files',
+      description: 'Search file contents for a string or pattern (like grep -r). Returns matching lines with file paths and line numbers.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Search string or regex pattern' },
+          path: { type: 'string', description: 'Directory to search (default: workspace root)' },
+          glob: { type: 'string', description: 'File type filter (e.g. "*.js", "*.tsx")' },
+        },
+        required: ['pattern'],
+      },
+    },
+    {
+      name: 'glob_files',
+      description: 'Find files by name pattern (like find). Returns a list of matching file paths.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Glob pattern (e.g. "**/*.tsx", "src/**/*.js", "*.json")' },
+          path: { type: 'string', description: 'Directory to search (default: workspace root)' },
+        },
+        required: ['pattern'],
+      },
+    },
+    {
+      name: 'delegate_parallel',
+      description: `Run 2–4 independent tasks simultaneously across different agents. Use when tasks don't depend on each other — it's faster than sequential delegation.\n\nYour team:\n${teamRoster || '(no team members)'}`,
+      input_schema: {
+        type: 'object',
+        properties: {
+          tasks: {
+            type: 'array',
+            description: 'Tasks to run in parallel (2–4). Each must be fully self-contained.',
+            items: {
+              type: 'object',
+              properties: {
+                to: { type: 'string', description: 'Agent label or id to assign to' },
+                task: { type: 'string', description: 'Complete task description for this agent' },
+              },
+              required: ['to', 'task'],
+            },
+            minItems: 2,
+            maxItems: 4,
+          },
+        },
+        required: ['tasks'],
+      },
+    },
   ]
 
   const implementerTools = [
@@ -259,6 +331,79 @@ export async function POST(req) {
         properties: {
           path: { type: 'string', description: 'Directory path (defaults to workspace root ~/)' },
         },
+      },
+    },
+    {
+      name: 'edit_file',
+      description: 'Edit a file by replacing an exact string with a new string. More precise and safer than write_file for targeted changes — use this instead of rewriting the whole file. Always use read_file first to confirm the exact text.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path (e.g. ~/myproject/app.js)' },
+          old_string: { type: 'string', description: 'Exact string to find and replace (must match exactly, including all whitespace and newlines)' },
+          new_string: { type: 'string', description: 'Replacement string' },
+        },
+        required: ['path', 'old_string', 'new_string'],
+      },
+    },
+    {
+      name: 'fetch_url',
+      description: 'Fetch any URL and return its content. Use to read documentation, check npm package docs, inspect deployed sites, or call any HTTP API.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Full URL to fetch' },
+          format: { type: 'string', enum: ['text', 'json', 'raw'], description: 'text = HTML stripped to readable text (default), json = parsed JSON, raw = full response' },
+        },
+        required: ['url'],
+      },
+    },
+    {
+      name: 'web_search',
+      description: 'Search the web for any topic. Returns results with titles, URLs, and summaries. Use to look up docs, find npm packages, research solutions, check error messages.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'grep_files',
+      description: 'Search file contents for a string or pattern. Returns matching lines with file paths and line numbers.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Search string or regex pattern' },
+          path: { type: 'string', description: 'Directory to search (default: workspace root)' },
+          glob: { type: 'string', description: 'File type filter (e.g. "*.js", "*.tsx")' },
+        },
+        required: ['pattern'],
+      },
+    },
+    {
+      name: 'glob_files',
+      description: 'Find files matching a name pattern.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Glob pattern (e.g. "**/*.tsx", "*.json")' },
+          path: { type: 'string', description: 'Directory to search (default: workspace root)' },
+        },
+        required: ['pattern'],
+      },
+    },
+    {
+      name: 'deploy',
+      description: 'Deploy the workspace project to Vercel or Railway with a single call. Handles the full deploy command automatically.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          platform: { type: 'string', enum: ['vercel', 'railway'], description: 'Target platform' },
+          project_name: { type: 'string', description: 'Project name (used for first-time Vercel deployments)' },
+        },
+        required: ['platform'],
       },
     },
     {
@@ -1227,6 +1372,195 @@ Never skip these. The user is watching and needs to know you're working.`,
         return out.slice(0, 3000)
       } catch (err) {
         send(`\n\n❌ Skill error: ${err.message}`)
+        return `Error: ${err.message}`
+      }
+    } else if (name === 'fetch_url') {
+      const { url, format = 'text' } = input
+      send(`\n\n🌐 **Fetching:** \`${url}\``)
+      try {
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SvetsDream/1.0)' },
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return `HTTP ${res.status}: ${res.statusText}`
+        const contentType = res.headers.get('content-type') || ''
+        if (format === 'json' || (format !== 'raw' && contentType.includes('json'))) {
+          try {
+            const json = await res.json()
+            const out = JSON.stringify(json, null, 2).slice(0, 20000)
+            send(`\n\n(${out.length} chars JSON)`)
+            return out
+          } catch { /* fall through */ }
+        }
+        const text = await res.text()
+        if (format === 'raw') {
+          send(`\n\n(${text.length} chars raw)`)
+          return text.slice(0, 20000)
+        }
+        const stripped = text
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+          .replace(/\s+/g, ' ').trim()
+        send(`\n\n(${stripped.length} chars)`)
+        return stripped.slice(0, 20000)
+      } catch (err) {
+        return `Fetch error: ${err.message}`
+      }
+
+    } else if (name === 'web_search') {
+      const query = encodeURIComponent(input.query)
+      send(`\n\n🔍 **Searching:** \`${input.query}\``)
+      try {
+        const res = await fetch(`https://api.duckduckgo.com/?q=${query}&format=json&no_html=1&skip_disambig=1`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SvetsDream/1.0)' },
+          signal: AbortSignal.timeout(10000),
+        })
+        const data = await res.json()
+        const results = []
+        if (data.AbstractText) results.push(`**Summary:** ${data.AbstractText}\nSource: ${data.AbstractURL}`)
+        for (const topic of (data.RelatedTopics || []).slice(0, 8)) {
+          if (topic.Text && topic.FirstURL) results.push(`- ${topic.Text.slice(0, 120)} (${topic.FirstURL})`)
+          else if (topic.Topics) {
+            for (const sub of topic.Topics.slice(0, 3)) {
+              if (sub.Text && sub.FirstURL) results.push(`- ${sub.Text.slice(0, 120)} (${sub.FirstURL})`)
+            }
+          }
+        }
+        if (results.length === 0) {
+          // Fallback: bash curl to DDG HTML
+          const r = await runBash(
+            `curl -sL --max-time 8 "https://html.duckduckgo.com/html/?q=${query}" | grep -oP '(?<=class="result__snippet">)[^<]+' | head -5`,
+            wsHome
+          )
+          if (r.stdout.trim()) results.push(r.stdout.trim())
+          else results.push(`No instant results for "${input.query}". Try fetch_url with a specific docs URL or run_bash with curl.`)
+        }
+        const out = results.join('\n\n')
+        send(`\n\n${out.slice(0, 600)}`)
+        return out.slice(0, 5000)
+      } catch (err) {
+        return `Search error: ${err.message}`
+      }
+
+    } else if (name === 'edit_file') {
+      const resolvedPath = (input.path || '').replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
+      send(`\n\n✏️ **Editing:** \`${input.path}\``)
+      try {
+        const { readFileSync, writeFileSync } = await import('fs')
+        const current = readFileSync(resolvedPath, 'utf8')
+        if (!current.includes(input.old_string)) {
+          return `Edit failed: exact string not found in ${input.path}.\n\nExpected:\n\`\`\`\n${input.old_string.slice(0, 300)}\n\`\`\`\n\nUse read_file first to check the actual content.`
+        }
+        const updated = current.replace(input.old_string, input.new_string)
+        writeFileSync(resolvedPath, updated, 'utf8')
+        const delta = input.new_string.length - input.old_string.length
+        send(`\n\n✅ Edited: ${input.path} (${delta >= 0 ? '+' : ''}${delta} chars)`)
+        return `Edited ${input.path}: replaced ${input.old_string.length} chars with ${input.new_string.length} chars.`
+      } catch (err) {
+        return `Edit error: ${err.message}`
+      }
+
+    } else if (name === 'grep_files') {
+      const searchPath = input.path ? input.path.replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome) : wsHome
+      const include = input.glob ? `--include="${input.glob}"` : ''
+      const pat = input.pattern.replace(/"/g, '\\"')
+      const cmd = `grep -r -n --color=never ${include} "${pat}" "${searchPath}" 2>/dev/null | head -100`
+      send(`\n\n🔎 **Grep:** \`${input.pattern}\` in \`${input.path || '~/'}\``)
+      const r = await runBash(cmd, wsHome)
+      const out = (r.stdout || r.stderr || '(no matches)').trim()
+      send(`\n\n\`\`\`\n${out.slice(0, 2000)}\n\`\`\``)
+      return out.slice(0, 5000)
+
+    } else if (name === 'glob_files') {
+      const searchPath = input.path ? input.path.replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome) : wsHome
+      // Convert glob to find + grep filter
+      const globRegex = (input.pattern || '*')
+        .replace(/\./g, '\\.').replace(/\*\*/g, 'GLOBSTAR').replace(/\*/g, '[^/]*').replace(/GLOBSTAR/g, '.*').replace(/\?/g, '.')
+      const cmd = `find "${searchPath}" -not -path "*/.git/*" -not -path "*/node_modules/*" -not -path "*/.next/*" | grep -E "${globRegex}" | sort | head -100`
+      send(`\n\n📂 **Glob:** \`${input.pattern}\` in \`${input.path || '~/'}\``)
+      const r = await runBash(cmd, wsHome)
+      const out = (r.stdout || r.stderr || '(no matches)').trim()
+      send(`\n\n\`\`\`\n${out.slice(0, 2000)}\n\`\`\``)
+      return out.slice(0, 5000)
+
+    } else if (name === 'delegate_parallel') {
+      if (_delegationDepth >= MAX_DELEGATION_DEPTH) {
+        send(`\n\n⚠️ **Delegation depth limit reached.**`)
+        return 'Delegation blocked: max depth reached.'
+      }
+      const tasks = input.tasks || []
+      const divider = '─'.repeat(50)
+      send(`\n\n${divider}\n⚡ **Parallel delegation:** ${tasks.length} tasks starting simultaneously\n${divider}\n\n`)
+
+      const results = await Promise.all(tasks.map(async (t) => {
+        const targetAgent = orgContext?.nodes?.find(n =>
+          n.id === t.to ||
+          n.id?.toLowerCase() === t.to?.toLowerCase() ||
+          n.label?.toLowerCase() === t.to?.toLowerCase() ||
+          n.label?.toLowerCase().includes(t.to?.toLowerCase())
+        )
+        if (!targetAgent) return `❌ Agent "${t.to}" not found.`
+        send(`\n<!--agent-active:${targetAgent.id}-->\n🤝 **→ ${targetAgent.label}:** ${t.task.slice(0, 120)}...\n`)
+        let subOutput = ''
+        try {
+          const res = await fetch(`${origin}/api/agent-chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Cookie: cookie },
+            body: JSON.stringify({
+              agent: targetAgent,
+              messages: [{ role: 'user', content: t.task }],
+              orgContext, rules,
+              _delegationDepth: _delegationDepth + 1,
+              workspaceId,
+            }),
+          })
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            const chunk = decoder.decode(value, { stream: true })
+            subOutput += chunk
+            send(chunk)
+          }
+        } catch (err) {
+          subOutput = `Error: ${err.message}`
+          send(`\n\n❌ ${targetAgent.label} error: ${err.message}`)
+        }
+        send(`\n<!--agent-idle:${targetAgent.id}-->`)
+        return `[${targetAgent.label}]: ${subOutput.slice(0, 2000)}`
+      }))
+
+      send(`\n\n${divider}\n✓ **All ${tasks.length} parallel tasks complete**\n${divider}\n\n`)
+      return results.join('\n\n---\n\n')
+
+    } else if (name === 'deploy') {
+      const platform = input.platform || 'vercel'
+      send(`\n\n🚀 **Deploying to ${platform}...**`)
+      try {
+        if (platform === 'vercel') {
+          const projectFlag = input.project_name ? `--name ${input.project_name}` : ''
+          const r = await runBash(`vercel --prod --yes ${projectFlag} 2>&1`, wsHome)
+          const out = [r.stdout, r.stderr].filter(Boolean).join('\n').trim()
+          const urlMatch = out.match(/https:\/\/[\w.-]+\.vercel\.app[\S]*/i)
+          if (urlMatch) {
+            const url = urlMatch[0].replace(/[.,;)'"]+$/, '')
+            send(`\n\n🎉 **Deployed:** [${url}](${url})`)
+            send(`\n\n<!--PREVIEW_URL:${url}-->`)
+          }
+          return out.slice(0, 2000)
+        } else if (platform === 'railway') {
+          const r = await runBash(`railway up --detach 2>&1`, wsHome)
+          const out = [r.stdout, r.stderr].filter(Boolean).join('\n').trim()
+          const urlMatch = out.match(/https:\/\/[\w.-]+\.up\.railway\.app[\S]*/i)
+          if (urlMatch) send(`\n\n🎉 **Deployed:** [${urlMatch[0]}](${urlMatch[0]})`)
+          return out.slice(0, 2000)
+        }
+        return `Unknown platform: ${platform}`
+      } catch (err) {
+        send(`\n\n❌ Deploy error: ${err.message}`)
         return `Error: ${err.message}`
       }
     }
