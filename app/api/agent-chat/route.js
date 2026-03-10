@@ -30,7 +30,7 @@ async function getFeatures() {
 }
 
 export async function POST(req) {
-  const { agent, messages, orgContext, rules, _delegationDepth = 0 } = await req.json()
+  const { agent, messages, orgContext, rules, _delegationDepth = 0, workspaceId } = await req.json()
   const featuresContext = await getFeatures()
 
   // On Vercel serverless, HOME=/var/task which is read-only. Use /tmp for all writes.
@@ -44,6 +44,17 @@ export async function POST(req) {
 
   // Single-user workspace — always Svet. Auth wall removed.
   const userId = 'svet'
+
+  // Per-conversation isolated workspace. Falls back to global home if no workspaceId supplied.
+  const wsHome = workspaceId ? `/root/workspace/${workspaceId}` : home
+  // Ensure the workspace dir exists on the Railway execution server (fire-and-forget, non-blocking)
+  if (workspaceId && process.env.EXECUTION_SERVER_URL) {
+    fetch(`${process.env.EXECUTION_SERVER_URL}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.EXEC_TOKEN || ''}` },
+      body: JSON.stringify({ command: `mkdir -p "${wsHome}"`, cwd: '/root/workspace' }),
+    }).catch(() => {})
+  }
 
   const isCTO = /cto|chief\s*tech/i.test(agent.role || '') || /cto/i.test(agent.label || '')
   const isTopAgent = (agent.level === 0 || agent.level === '0' || isCTO) && agent.id !== 'rules'
@@ -570,7 +581,7 @@ Never skip these. The user is watching and needs to know you're working.`,
   async function runBash(command, cwd) {
     if (EXEC_SERVER_URL) {
       // Forward to execution server — has npm, git, vercel CLI, etc.
-      const cwdResolved = (cwd || home).replace(/^~\//, home + '/').replace(/^~$/, home)
+      const cwdResolved = (cwd || wsHome).replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
       const res = await fetch(`${EXEC_SERVER_URL}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
@@ -607,7 +618,7 @@ Never skip these. The user is watching and needs to know you're working.`,
 
     return new Promise((resolve, reject) => {
       const child = spawn(BASH, ['-c', command], {
-        cwd: (cwd || home).replace(/^~\//, home + '/').replace(/^~$/, home),
+        cwd: (cwd || wsHome).replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome),
         env: { ...process.env, FORCE_COLOR: '0' },
         timeout: 120000,
         shell: false,
@@ -671,6 +682,7 @@ Never skip these. The user is watching and needs to know you're working.`,
             orgContext,
             rules,
             _delegationDepth: _delegationDepth + 1,
+            workspaceId,
           }),
         })
         const reader = res.body.getReader()
@@ -708,7 +720,7 @@ Never skip these. The user is watching and needs to know you're working.`,
       if (!htmlContent) {
         return `Error: output_html was called without the html content. The "html" field MUST contain the complete HTML document. Call output_html again with both path AND html fields populated.`
       }
-      const resolvedPath = input.path.replace(/^~\//, home + '/').replace(/^~$/, home)
+      const resolvedPath = input.path.replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
       send(`\n\n📄 **Generating website** \`${input.path}\` (${htmlContent.length} chars)`)
       try {
         mkdirSync(dirname(resolvedPath), { recursive: true })
@@ -726,8 +738,8 @@ Never skip these. The user is watching and needs to know you're working.`,
     } else if (name === 'write_document' || name === 'write_file') {
       const { writeFileSync, mkdirSync } = await import('fs')
       const { dirname } = await import('path')
-      // Always resolve ~ to the writable home dir (which is /tmp on Vercel)
-      const resolvedPath = input.path.replace(/^~\//, home + '/').replace(/^~$/, home)
+      // Always resolve ~ to the per-conversation workspace dir
+      const resolvedPath = input.path.replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
       if (!input.content) {
         return `Error: write_file was called without content. You MUST include the full file content in the "content" parameter. Call write_file again with both path AND content.`
       }
@@ -758,7 +770,7 @@ Never skip these. The user is watching and needs to know you're working.`,
 
     } else if (name === 'run_bash') {
       const cmd = input.command
-      const cwd = input.cwd ? input.cwd.replace(/^~\//, home + '/').replace(/^~$/, home) : home
+      const cwd = input.cwd ? input.cwd.replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome) : wsHome
       send(`\n\n💻 **Running:** \`${cmd.slice(0, 100)}${cmd.length > 100 ? '...' : ''}\``)
       try {
         const r = await runBash(cmd, cwd)
@@ -1020,6 +1032,7 @@ Never skip these. The user is watching and needs to know you're working.`,
               orgContext,
               rules,
               _delegationDepth: _delegationDepth + 1,
+              workspaceId,
             }),
           })
           const reader = res.body.getReader()

@@ -208,6 +208,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const bottomRef = useRef(null)
   const messagesRef = useRef(messages)
   const currentOrgRef = useRef(currentOrg)
+  const workspaceIdRef = useRef(`ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   useEffect(() => { messagesRef.current = messages }, [messages])
   useEffect(() => { currentOrgRef.current = currentOrg }, [currentOrg])
 
@@ -286,6 +287,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             messages: chatMessages,
             orgContext: org,
             rules: rulesNode?.description || null,
+            workspaceId: workspaceIdRef.current,
           }),
         })
 
