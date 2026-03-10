@@ -213,6 +213,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const messagesRef = useRef(messages)
   const currentOrgRef = useRef(currentOrg)
   const workspaceIdRef = useRef(`ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const abortRef = useRef(null) // AbortController for stopping streams
   useEffect(() => { messagesRef.current = messages }, [messages])
   useEffect(() => { currentOrgRef.current = currentOrg }, [currentOrg])
 
@@ -284,8 +285,21 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
     while ((m = idleRe.exec(text)) !== null) dispatchAgentStatus(m[1].trim(), false)
   }
 
+  function stopGeneration() {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setLoading(false)
+    setThinkingLabel('Thinking...')
+    setMessages(prev => {
+      const last = prev[prev.length - 1]
+      if (last?.role === 'assistant' && last.content === '') return prev.slice(0, -1)
+      return prev
+    })
+  }
+
   async function sendText(text, img = null) {
     setPendingApproval(null) // clear any pending approval when user sends a message
+    abortRef.current = new AbortController()
     // Build content: multimodal if image attached, plain string otherwise
     const userContent = img
       ? [
@@ -314,6 +328,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         const res = await fetch('/api/agent-chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: abortRef.current?.signal,
           body: JSON.stringify({
             agent: quickAgent,
             messages: chatMessages,
@@ -357,7 +372,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
           urlMatches.forEach(m => window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'url', data: { url: m[1] } } })))
         }
       } catch (err) {
-        setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err.message}` }])
+        if (err.name !== 'AbortError') setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err.message}` }])
       }
       setLoading(false)
       dispatchActivity('Builder', 'complete')
@@ -375,6 +390,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         const res = await fetch('/api/agent-chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: abortRef.current?.signal,
           body: JSON.stringify({
             agent: ctoNode,
             messages: chatMessages,
@@ -466,6 +482,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         // Dispatch builder update so BuilderPreview knows something happened
         window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'info', data: { text: 'CTO working...' } } }))
       } catch (err) {
+        if (err.name === 'AbortError') { dispatchAgentStatus(ctoNode?.id || 'cto', false); return }
         dispatchAgentStatus(ctoNode?.id || 'cto', false)
         dispatchActivity('CTO', 'error', err.message)
         setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
@@ -702,32 +719,45 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 <img src={pendingImage.dataUrl} alt="preview" style={{ height: 60, borderRadius: 6, border: '1px solid #1e3a5f', objectFit: 'cover' }} />
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
               <textarea
                 value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                placeholder={quickMode ? 'Build directly (no CTO)...' : currentOrg ? 'Talk to your CTO...' : 'What do you want to build?'}
+                placeholder="Ask anything — research, plan, build, schedule…"
                 rows={2}
+                disabled={loading}
                 style={{
-                  flex: 1, padding: '10px 44px 10px 14px', borderRadius: 12,
+                  flex: 1, padding: '10px 14px', borderRadius: 12,
                   border: `1px solid ${quickMode ? 'rgba(99,102,241,0.4)' : '#1e3a5f'}`, outline: 'none', fontSize: 13,
                   resize: 'none', fontFamily: 'inherit', lineHeight: 1.5,
-                  background: '#071018', color: '#e2e8f0', transition: 'border-color 0.15s',
+                  background: loading ? '#060e18' : '#071018', color: '#e2e8f0', transition: 'border-color 0.15s',
+                  opacity: loading ? 0.5 : 1,
                 }}
                 onFocus={e => e.target.style.borderColor = '#6366f1'}
                 onBlur={e => e.target.style.borderColor = quickMode ? 'rgba(99,102,241,0.4)' : '#1e3a5f'}
               />
-              <button onClick={send} disabled={(!input.trim() && !pendingImage) || loading} title="Send (Enter)" style={{
-                position: 'absolute', right: 8, bottom: 8,
-                width: 34, height: 34, borderRadius: 9, border: 'none',
-                background: (!input.trim() && !pendingImage) || loading ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-                color: (!input.trim() && !pendingImage) || loading ? '#334155' : '#fff',
-                fontWeight: 700, fontSize: 16, cursor: (!input.trim() && !pendingImage) || loading ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.2s',
-                boxShadow: (input.trim() || pendingImage) && !loading ? '0 2px 10px rgba(99,102,241,0.5)' : 'none',
-                transform: (input.trim() || pendingImage) && !loading ? 'scale(1.05)' : 'scale(1)',
-              }}>{loading ? <span style={{ fontSize: 10, letterSpacing: 1 }}>•••</span> : '↑'}</button>
+              {loading ? (
+                <button onClick={stopGeneration} title="Stop generation" style={{
+                  flexShrink: 0, width: 68, height: 42, borderRadius: 10, border: '1px solid rgba(239,68,68,0.4)',
+                  background: 'rgba(239,68,68,0.12)', color: '#f87171',
+                  fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.22)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.7)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.12)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)' }}
+                >■ Stop</button>
+              ) : (
+                <button onClick={send} disabled={!input.trim() && !pendingImage} title="Send (Enter)" style={{
+                  flexShrink: 0, width: 42, height: 42, borderRadius: 10, border: 'none',
+                  background: (input.trim() || pendingImage) ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : '#1e293b',
+                  color: (input.trim() || pendingImage) ? '#fff' : '#334155',
+                  fontWeight: 700, fontSize: 18, cursor: (input.trim() || pendingImage) ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.2s',
+                  boxShadow: (input.trim() || pendingImage) ? '0 2px 10px rgba(99,102,241,0.5)' : 'none',
+                }}>↑</button>
+              )}
             </div>
             <div style={{ fontSize: 9.5, color: '#334155', marginTop: 4, textAlign: 'right', paddingRight: 4 }}>⏎ send · Shift+⏎ newline</div>
           </div>
