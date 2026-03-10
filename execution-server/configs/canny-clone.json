@@ -1,0 +1,42 @@
+{
+  "appName": "FeatureVote",
+  "tagline": "Collect, prioritize, and ship user feedback",
+  "headline": "Your users know what to build next",
+  "subheadline": "Collect feature requests, let the community vote, close the loop when you ship.",
+  "primaryColor": "#7C3AED",
+  "ctaText": "Start collecting feedback",
+  "blocks": [
+    "next-shell", "supabase", "auth-email", "auth-google",
+    "dashboard-layout", "crud-table", "crud-api",
+    "landing", "about-page", "pricing-page", "contact-form",
+    "notifications", "notifications-db",
+    "comments", "reviews-ratings",
+    "settings-page", "dark-mode", "seo-meta",
+    "export-csv", "audit-log",
+    "waitlist"
+  ],
+  "entities": [
+    {
+      "name": "feedback_posts",
+      "label": "Feature Requests",
+      "fields": ["title", "description", "status", "vote_count", "category", "created_at"]
+    },
+    {
+      "name": "votes",
+      "label": "Votes",
+      "fields": ["post_id", "user_id", "created_at"]
+    },
+    {
+      "name": "changelogs",
+      "label": "Changelog",
+      "fields": ["title", "description", "version", "published_at"]
+    }
+  ],
+  "navItems": [
+    { "label": "Board", "href": "/dashboard/feedback_posts", "icon": "LayoutGrid" },
+    { "label": "Roadmap", "href": "/dashboard/roadmap", "icon": "Map" },
+    { "label": "Changelog", "href": "/dashboard/changelogs", "icon": "BookOpen" },
+    { "label": "Analytics", "href": "/dashboard/analytics", "icon": "BarChart2" },
+    { "label": "Settings", "href": "/dashboard/settings", "icon": "Settings" }
+  ]
+}

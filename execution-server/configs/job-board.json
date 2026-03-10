@@ -1,0 +1,43 @@
+{
+  "appName": "HireLocal",
+  "tagline": "Find talent, get hired — fast",
+  "headline": "Local jobs. Real connections.",
+  "subheadline": "Post a job in 2 minutes. Apply in one click. No recruiters, no middlemen.",
+  "primaryColor": "#059669",
+  "ctaText": "Browse jobs",
+  "blocks": [
+    "next-shell", "supabase", "auth-email",
+    "dashboard-layout", "crud-table", "crud-api",
+    "search-filters", "user-profiles",
+    "landing", "about-page", "pricing-page", "contact-form",
+    "notifications", "notifications-db",
+    "comments", "email-resend", "sms-telnyx",
+    "file-upload", "settings-page",
+    "seo-meta", "blog", "dark-mode",
+    "export-csv", "audit-log", "cron"
+  ],
+  "entities": [
+    {
+      "name": "jobs",
+      "label": "Job Listings",
+      "fields": ["title", "company", "location", "type", "salary_min", "salary_max", "description", "status", "created_at"]
+    },
+    {
+      "name": "applications",
+      "label": "Applications",
+      "fields": ["job_id", "applicant_id", "cover_letter", "resume_url", "status", "created_at"]
+    },
+    {
+      "name": "companies",
+      "label": "Companies",
+      "fields": ["name", "logo_url", "website", "description", "size", "location"]
+    }
+  ],
+  "navItems": [
+    { "label": "Jobs", "href": "/dashboard/jobs", "icon": "Briefcase" },
+    { "label": "Applications", "href": "/dashboard/applications", "icon": "FileText" },
+    { "label": "Companies", "href": "/dashboard/companies", "icon": "Building2" },
+    { "label": "Candidates", "href": "/search", "icon": "Users" },
+    { "label": "Settings", "href": "/dashboard/settings", "icon": "Settings" }
+  ]
+}

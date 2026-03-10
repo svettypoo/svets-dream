@@ -1,5 +1,5 @@
 {
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Reusable frontend/backend blocks for rapid app scaffolding",
   "blocks": [
     {
@@ -370,6 +370,60 @@
       "files": ["form-builder/components/FormBuilderEditor.jsx", "form-builder/components/FormRenderer.jsx", "form-builder/app/api/forms/route.js", "form-builder/schema.sql"],
       "requires": ["next-shell", "supabase"],
       "tags": ["forms", "builder", "survey", "submissions", "no-code"]
+    },
+    {
+      "id": "comments",
+      "name": "Comment Threads",
+      "description": "Threaded comments on any resource — attach to posts, listings, tasks. Realtime-friendly, nested replies, delete own.",
+      "type": "component",
+      "files": ["comments/components/CommentThread.jsx", "comments/app/api/comments/route.js", "comments/schema.sql"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["comments", "discussion", "community", "threads"]
+    },
+    {
+      "id": "notifications-db",
+      "name": "Persistent Notifications",
+      "description": "DB-backed notification feed with Supabase realtime push, unread badge, mark-read, type icons",
+      "type": "component",
+      "files": ["notifications-db/components/NotificationFeed.jsx", "notifications-db/app/api/notifications/route.js", "notifications-db/schema.sql"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["notifications", "realtime", "inbox", "bell"]
+    },
+    {
+      "id": "export-csv",
+      "name": "CSV Export",
+      "description": "ExportButton component + /api/export endpoint — download any DB table as CSV with optional column/filter params",
+      "type": "component",
+      "files": ["export-csv/components/ExportButton.jsx", "export-csv/app/api/export/route.js"],
+      "requires": ["supabase"],
+      "tags": ["export", "csv", "data", "download", "admin"]
+    },
+    {
+      "id": "onboarding-flow",
+      "name": "Onboarding Wizard",
+      "description": "Multi-step onboarding wizard with radio/text fields, progress bar, saves answers to profiles table",
+      "type": "page",
+      "files": ["onboarding-flow/components/OnboardingWizard.jsx", "onboarding-flow/app/onboarding/page.js", "onboarding-flow/app/api/onboarding/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["onboarding", "wizard", "steps", "ux", "activation"]
+    },
+    {
+      "id": "feature-flags",
+      "name": "Feature Flags",
+      "description": "Per-plan and per-user feature toggles with admin UI — gate features by plan, enable for specific users",
+      "type": "infrastructure",
+      "files": ["feature-flags/lib/flags.js", "feature-flags/app/api/flags/route.js", "feature-flags/schema.sql"],
+      "requires": ["supabase"],
+      "tags": ["feature-flags", "toggles", "plans", "gating", "saas"]
+    },
+    {
+      "id": "api-keys",
+      "name": "API Key Management",
+      "description": "Generate/revoke SHA-256 hashed API keys per user — scopes, expiry, usage tracking, ApiKeyManager UI",
+      "type": "component",
+      "files": ["api-keys/lib/api-keys.js", "api-keys/app/api/keys/route.js", "api-keys/components/ApiKeyManager.jsx", "api-keys/schema.sql"],
+      "requires": ["supabase"],
+      "tags": ["api-keys", "auth", "developer", "saas", "access"]
     }
   ]
 }

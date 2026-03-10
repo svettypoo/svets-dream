@@ -62,11 +62,21 @@ function copyBlock(blockId, srcRel, destRel) {
 }
 
 function applyTemplateVars(content, cfg) {
+  const appName = cfg.appName || 'MyApp'
+  const tagline = cfg.tagline || 'The best platform for you'
+  const color = cfg.primaryColor || '#6366f1'
+  const appUrl = cfg.appUrl || 'https://example.com'
   return content
-    .replace(/APP_NAME/g, cfg.appName || 'MyApp')
-    .replace(/APP_TAGLINE/g, cfg.tagline || 'The best platform for you')
-    .replace(/PRIMARY_COLOR/g, cfg.primaryColor || '#6366f1')
-    .replace(/BRAND_COLOR/g, cfg.primaryColor || '#6366f1')
+    // Handle both {{APP_NAME}} and APP_NAME patterns
+    .replace(/\{\{APP_NAME\}\}/g, appName)
+    .replace(/\{\{APP_TAGLINE\}\}/g, tagline)
+    .replace(/\{\{APP_URL\}\}/g, appUrl)
+    .replace(/\{\{PRIMARY_COLOR\}\}/g, color)
+    .replace(/APP_NAME/g, appName)
+    .replace(/APP_TAGLINE/g, tagline)
+    .replace(/APP_URL/g, appUrl)
+    .replace(/PRIMARY_COLOR/g, color)
+    .replace(/BRAND_COLOR/g, color)
 }
 
 function log(msg) { console.log(`\n── ${msg} ──`) }
@@ -585,6 +595,80 @@ export default function HomePage() {
     assess('form-builder', 'perfect', 'Visual form builder with 10 field types. FormRenderer handles end-user submissions to DB. No code required for new forms.')
     done('form-builder')
   },
+
+  'comments': () => {
+    log('comments: Threaded comment system')
+    copyBlock('comments', 'components/CommentThread.jsx', 'components/CommentThread.jsx')
+    copyBlock('comments', 'app/api/comments/route.js', 'app/api/comments/route.js')
+    assess('comments', 'perfect', 'Resource-agnostic comments (resource_type+resource_id pattern). Drop <CommentThread resourceType="post" resourceId={id} /> anywhere.')
+    done('comments')
+  },
+
+  'notifications-db': () => {
+    log('notifications-db: Persistent notification feed')
+    copyBlock('notifications-db', 'components/NotificationFeed.jsx', 'components/NotificationFeed.jsx')
+    copyBlock('notifications-db', 'app/api/notifications/route.js', 'app/api/notifications/route.js')
+    assess('notifications-db', 'perfect', 'Supabase realtime INSERT subscription. Compact mode = bell dropdown; full mode = inbox page. POST from any API to send.')
+    done('notifications-db')
+  },
+
+  'export-csv': () => {
+    log('export-csv: CSV data export')
+    copyBlock('export-csv', 'components/ExportButton.jsx', 'components/ExportButton.jsx')
+    copyBlock('export-csv', 'app/api/export/route.js', 'app/api/export/route.js')
+    // Add app tables to allowlist
+    if (!dryRun) {
+      const exportRoute = path.join(outDir, 'app/api/export/route.js')
+      if (fs.existsSync(exportRoute)) {
+        let content = fs.readFileSync(exportRoute, 'utf8')
+        const appTables = (config.entities || []).map(e => `'${e.name}'`).join(', ')
+        if (appTables) {
+          content = content.replace("'comments'", `'comments', ${appTables}`)
+          fs.writeFileSync(exportRoute, content, 'utf8')
+          console.log(`   ✎ Added app tables to export allowlist: ${appTables}`)
+        }
+      }
+    }
+    assess('export-csv', 'perfect', 'Secure allowlist prevents arbitrary table access. ExportButton just needs table name + column list.')
+    done('export-csv')
+  },
+
+  'onboarding-flow': () => {
+    log('onboarding-flow: Multi-step onboarding wizard')
+    copyBlock('onboarding-flow', 'components/OnboardingWizard.jsx', 'components/OnboardingWizard.jsx')
+    copyBlock('onboarding-flow', 'app/onboarding/page.js', 'app/onboarding/page.js')
+    copyBlock('onboarding-flow', 'app/api/onboarding/route.js', 'app/api/onboarding/route.js')
+    // Generate app-specific steps from config
+    const steps = config.onboardingSteps || null
+    if (!dryRun && steps) {
+      const wizardPath = path.join(outDir, 'components/OnboardingWizard.jsx')
+      if (fs.existsSync(wizardPath)) {
+        let content = fs.readFileSync(wizardPath, 'utf8')
+        content = content.replace('const DEFAULT_STEPS = [', `const DEFAULT_STEPS = ${JSON.stringify(steps, null, 2)}\nconst _UNUSED = [`)
+        fs.writeFileSync(wizardPath, content, 'utf8')
+        console.log(`   ✎ Injected ${steps.length} onboarding steps from config`)
+      }
+    }
+    assess('onboarding-flow', steps ? 'perfect' : 'good', steps ? `Custom steps from config: ${steps.map(s => s.title).join(', ')}` : 'Default steps — customize via config.onboardingSteps or edit OnboardingWizard.jsx')
+    done('onboarding-flow')
+  },
+
+  'feature-flags': () => {
+    log('feature-flags: Plan-gated feature toggles')
+    copyBlock('feature-flags', 'lib/flags.js', 'lib/flags.js')
+    copyBlock('feature-flags', 'app/api/flags/route.js', 'app/api/flags/route.js')
+    assess('feature-flags', 'perfect', 'Per-plan + per-user overrides. Seed flags in schema.sql. Call isEnabled() server-side or GET /api/flags for client.')
+    done('feature-flags')
+  },
+
+  'api-keys': () => {
+    log('api-keys: User API key management')
+    copyBlock('api-keys', 'lib/api-keys.js', 'lib/api-keys.js')
+    copyBlock('api-keys', 'app/api/keys/route.js', 'app/api/keys/route.js')
+    copyBlock('api-keys', 'components/ApiKeyManager.jsx', 'components/ApiKeyManager.jsx')
+    assess('api-keys', 'perfect', 'SHA-256 hashed keys, never stored in plaintext. Scopes, expiry, usage count. ApiKeyManager UI shows once-visible key on creation.')
+    done('api-keys')
+  },
 }
 
 // ── Run assembly ──────────────────────────────────────────────────────────────
@@ -611,6 +695,10 @@ const ordered = [
   'about-page', 'pricing-page', 'contact-form', 'landing', 'settings-page',
   // Ops
   'cron', 'audit-log', 'dark-mode',
+  // Community + data
+  'comments', 'notifications-db', 'export-csv',
+  // Developer + SaaS
+  'onboarding-flow', 'feature-flags', 'api-keys',
 ]
 
 ensureDir(outDir)
@@ -657,43 +745,43 @@ writeFile(path.join(outDir, '.env.local.example'), envContent)
 // ── Supabase schema ───────────────────────────────────────────────────────────
 
 log('Writing supabase-schema.sql')
+
+// Build entity tables — dedupe fields that are auto-added (id, created_at, updated_at)
+const AUTO_FIELDS = new Set(['id', 'created_at', 'updated_at'])
 const entityTables = (config.entities || []).map(e => {
-  const fields = (e.fields || ['name']).map(f => {
-    if (f === 'id') return null
-    if (f.endsWith('_at')) return `  ${f} timestamptz default now()`
-    if (f.endsWith('_id')) return `  ${f} uuid references profiles(id)`
+  const fields = (e.fields || ['name']).filter(f => !AUTO_FIELDS.has(f)).map(f => {
+    if (f.endsWith('_at')) return `  ${f} timestamptz`
+    if (f.endsWith('_id')) return `  ${f} uuid references profiles(id) on delete set null`
     if (f.endsWith('_url')) return `  ${f} text`
-    if (f.startsWith('price') || f.startsWith('amount') || f.startsWith('total')) return `  ${f} numeric(10,2)`
+    if (f.startsWith('price_') || f.startsWith('salary_') || f.startsWith('amount') || f.startsWith('total')) return `  ${f} numeric(10,2)`
     if (f === 'rating') return `  ${f} numeric(3,2)`
-    if (['count', 'guests', 'nights', 'quantity'].includes(f)) return `  ${f} int default 0`
-    if (['is_published', 'is_active', 'is_verified'].includes(f)) return `  ${f} boolean default false`
-    if (f === 'status') return `  ${f} text default 'pending'`
-    if (f === 'images') return `  ${f} text[] default '{}'`
+    if (f.endsWith('_count') || ['guests', 'nights', 'quantity', 'position'].includes(f)) return `  ${f} int default 0`
+    if (f.startsWith('is_') || f.startsWith('has_')) return `  ${f} boolean default false`
+    if (f === 'status') return `  ${f} text not null default 'active'`
+    if (f === 'images' || f.endsWith('_tags') || f === 'tags') return `  ${f} text[] default '{}'`
+    if (f === 'description' || f === 'content' || f === 'body' || f === 'notes') return `  ${f} text`
     return `  ${f} text`
-  }).filter(Boolean)
-  return `create table if not exists ${e.name} (\n  id uuid primary key default gen_random_uuid(),\n${fields.join(',\n')},\n  created_at timestamptz default now(),\n  updated_at timestamptz default now()\n);`
+  })
+  return `-- ${e.label || e.name}\ncreate table if not exists ${e.name} (\n  id uuid primary key default gen_random_uuid(),\n${fields.join(',\n')},\n  created_at timestamptz not null default now(),\n  updated_at timestamptz not null default now()\n);\nalter table ${e.name} enable row level security;`
 }).join('\n\n')
 
-const baseSchema = `-- ${config.appName} schema generated by assemble-local.js
+// Conditional block schemas — only include tables for blocks that are in the config
+const has = (blockId) => config.blocks.includes(blockId)
+
+const baseSchema = `-- ${config.appName} schema — generated by assemble-local.js
 -- Run this in Supabase SQL editor
 
--- Profiles (extends auth.users)
+-- ── Core: Profiles ────────────────────────────────────────────────────────────
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
   email text,
   avatar_url text,
   bio text,
-  phone text,
-  role text default 'guest',
-  location text,
-  languages text[],
-  rating numeric(3,2),
-  review_count int default 0,
-  listing_count int default 0,
-  identity_verified boolean default false,
-  stripe_account_id text,
-  created_at timestamptz default now()
+  phone text,${has('roles-permissions') ? '\n  role text not null default \'member\',' : ''}
+  location text,${has('user-profiles') ? '\n  languages text[],\n  rating numeric(3,2),\n  review_count int default 0,\n  identity_verified boolean default false,' : ''}${has('stripe-subscriptions') ? '\n  stripe_customer_id text,' : ''}${has('stripe-connect') ? '\n  stripe_account_id text,' : ''}${has('onboarding-flow') ? '\n  onboarded boolean default false,\n  onboarded_at timestamptz,\n  onboarding_data jsonb,' : ''}${has('feature-flags') || has('stripe-subscriptions') ? '\n  plan text default \'free\',' : ''}
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 create or replace function handle_new_user() returns trigger language plpgsql security definer as $$
 begin
@@ -704,22 +792,30 @@ end;
 $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute procedure handle_new_user();
-
--- OTPs (for phone verification)
+alter table profiles enable row level security;
+create policy if not exists "Users read all profiles" on profiles for select using (true);
+create policy if not exists "Users update own profile" on profiles for update using (auth.uid() = id);
+${has('sms-telnyx') ? `
+-- OTPs
 create table if not exists otps (
   phone text primary key,
   code text not null,
   expires_at timestamptz not null,
   created_at timestamptz default now()
 );
-
+create table if not exists inbound_sms (
+  id uuid primary key default gen_random_uuid(),
+  "from" text, "to" text, body text,
+  received_at timestamptz default now()
+);` : ''}
+${has('contact-form') ? `
 -- Contact submissions
 create table if not exists contact_submissions (
   id uuid primary key default gen_random_uuid(),
   name text, email text, subject text, message text,
   created_at timestamptz default now()
-);
-
+);` : ''}
+${has('tasks') ? `
 -- Tasks
 create table if not exists tasks (
   id uuid primary key default gen_random_uuid(),
@@ -732,11 +828,12 @@ create table if not exists tasks (
   created_by uuid references profiles(id),
   created_at timestamptz default now()
 );
-
+alter table tasks enable row level security;
+create policy if not exists "Authenticated manage tasks" on tasks using (auth.role() = 'authenticated');` : ''}
+${has('chat-realtime') ? `
 -- Conversations + messages
 create table if not exists conversations (
   id uuid primary key default gen_random_uuid(),
-  listing_id uuid,
   updated_at timestamptz default now(),
   created_at timestamptz default now()
 );
@@ -752,29 +849,174 @@ create table if not exists messages (
   body text not null,
   created_at timestamptz default now()
 );
-
--- Inbound SMS
-create table if not exists inbound_sms (
-  id uuid primary key default gen_random_uuid(),
-  "from" text, "to" text, body text,
-  received_at timestamptz default now()
-);
-
-${entityTables}
-
--- Enable RLS
-alter table profiles enable row level security;
-alter table tasks enable row level security;
 alter table messages enable row level security;
-alter table conversations enable row level security;
-
--- Basic policies
-create policy "Users can read all profiles" on profiles for select using (true);
-create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
-create policy "Authenticated can manage tasks" on tasks using (auth.role() = 'authenticated');
-create policy "Participants can read messages" on messages for select using (
+create policy if not exists "Participants read messages" on messages for select using (
   exists (select 1 from conversation_participants where conversation_id = messages.conversation_id and user_id = auth.uid())
+);` : ''}
+${has('bookings') ? `
+-- Bookings
+create table if not exists bookings (
+  id uuid primary key default gen_random_uuid(),
+  listing_id uuid,
+  guest_id uuid references profiles(id),
+  check_in date not null,
+  check_out date not null,
+  guests int default 1,
+  total_price numeric(10,2),
+  status text default 'pending',
+  created_at timestamptz default now()
+);` : ''}
+${has('reviews-ratings') ? `
+-- Reviews
+create table if not exists reviews (
+  id uuid primary key default gen_random_uuid(),
+  listing_id uuid,
+  reviewer_id uuid references profiles(id),
+  rating int not null check (rating between 1 and 5),
+  comment text,
+  created_at timestamptz default now()
+);` : ''}
+${has('stripe-subscriptions') ? `
+-- Subscriptions
+create table if not exists subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  stripe_subscription_id text unique,
+  stripe_customer_id text,
+  status text not null default 'inactive',
+  price_id text,
+  current_period_end timestamptz,
+  cancel_at_period_end boolean default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
+create table if not exists payments (
+  id uuid primary key default gen_random_uuid(),
+  stripe_invoice_id text unique,
+  stripe_customer_id text,
+  amount int,
+  currency text default 'usd',
+  status text,
+  paid_at timestamptz,
+  created_at timestamptz default now()
+);` : ''}
+${has('waitlist') ? `
+-- Waitlist
+create table if not exists waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  name text,
+  position int not null,
+  status text default 'waiting',
+  created_at timestamptz default now()
+);` : ''}
+${has('blog') ? `
+-- Blog
+create table if not exists blog_posts (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  title text not null,
+  excerpt text,
+  content text not null,
+  cover_image text,
+  tags text[] default '{}',
+  status text default 'draft',
+  author_name text default 'Team',
+  read_time int,
+  views int default 0,
+  published_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists idx_blog_slug on blog_posts(slug);
+create index if not exists idx_blog_status on blog_posts(status, published_at desc);` : ''}
+${has('comments') ? `
+-- Comments
+create table if not exists comments (
+  id uuid primary key default gen_random_uuid(),
+  resource_type text not null,
+  resource_id text not null,
+  parent_id uuid references comments(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  author_name text default 'Anonymous',
+  body text not null,
+  created_at timestamptz default now()
+);
+create index if not exists idx_comments_resource on comments(resource_type, resource_id);` : ''}
+${has('notifications-db') ? `
+-- Notifications
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  message text not null,
+  type text default 'info',
+  link text,
+  read_at timestamptz,
+  created_at timestamptz default now()
+);
+alter table notifications enable row level security;
+create policy if not exists "Users see own notifications" on notifications for all using (auth.uid() = user_id);` : ''}
+${has('audit-log') ? `
+-- Audit log
+create table if not exists audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  action text not null,
+  resource text,
+  resource_id text,
+  details jsonb,
+  ip_address text,
+  created_at timestamptz default now()
+);
+create index if not exists idx_audit_action on audit_logs(action);
+create index if not exists idx_audit_created on audit_logs(created_at desc);` : ''}
+${has('feature-flags') ? `
+-- Feature flags
+create table if not exists feature_flags (
+  id uuid primary key default gen_random_uuid(),
+  key text unique not null,
+  description text,
+  enabled boolean default true,
+  plans text[],
+  user_overrides jsonb default '{}',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);` : ''}
+${has('api-keys') ? `
+-- API keys
+create table if not exists api_keys (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  key_hash text unique not null,
+  key_prefix text not null,
+  scopes text[] default '{}',
+  is_active boolean default true,
+  use_count int default 0,
+  last_used_at timestamptz,
+  expires_at timestamptz,
+  created_at timestamptz default now()
+);
+create index if not exists idx_api_keys_hash on api_keys(key_hash);` : ''}
+${has('form-builder') ? `
+-- Forms
+create table if not exists forms (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text,
+  schema jsonb not null default '{}',
+  status text default 'active',
+  created_at timestamptz default now()
+);
+create table if not exists form_submissions (
+  id uuid primary key default gen_random_uuid(),
+  form_id uuid references forms(id) on delete cascade,
+  data jsonb not null default '{}',
+  created_at timestamptz default now()
+);` : ''}
+
+-- ── App entities ──────────────────────────────────────────────────────────────
+${entityTables}
 `
 writeFile(path.join(outDir, 'supabase-schema.sql'), baseSchema)
 

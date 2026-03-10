@@ -1,0 +1,83 @@
+{
+  "appName": "LaunchKit",
+  "tagline": "Ship your SaaS in a weekend",
+  "headline": "Everything you need to launch and grow",
+  "subheadline": "Auth, billing, team management, and analytics — all pre-built. You write the product.",
+  "primaryColor": "#2563EB",
+  "ctaText": "Start for free",
+  "blocks": [
+    "next-shell", "supabase", "auth-email", "auth-google",
+    "dashboard-layout", "crud-table", "crud-api",
+    "roles-permissions", "stripe-subscriptions",
+    "landing", "pricing-page", "about-page", "contact-form",
+    "notifications", "notifications-db",
+    "settings-page", "dark-mode", "seo-meta", "blog",
+    "waitlist", "onboarding-flow",
+    "audit-log", "feature-flags", "api-keys",
+    "export-csv", "form-builder",
+    "email-resend", "cron"
+  ],
+  "entities": [
+    {
+      "name": "teams",
+      "label": "Teams",
+      "fields": ["name", "plan", "owner_id", "member_count", "created_at"]
+    },
+    {
+      "name": "team_members",
+      "label": "Team Members",
+      "fields": ["team_id", "user_id", "role", "invited_at"]
+    },
+    {
+      "name": "projects",
+      "label": "Projects",
+      "fields": ["name", "description", "team_id", "status", "created_at"]
+    }
+  ],
+  "navItems": [
+    { "label": "Dashboard", "href": "/dashboard", "icon": "LayoutDashboard" },
+    { "label": "Projects", "href": "/dashboard/projects", "icon": "FolderOpen" },
+    { "label": "Team", "href": "/dashboard/teams", "icon": "Users" },
+    { "label": "Billing", "href": "/dashboard/billing", "icon": "CreditCard" },
+    { "label": "API Keys", "href": "/dashboard/keys", "icon": "Key" },
+    { "label": "Settings", "href": "/dashboard/settings", "icon": "Settings" },
+    { "label": "Audit Log", "href": "/dashboard/audit", "icon": "Shield" }
+  ],
+  "onboardingSteps": [
+    {
+      "id": "profile",
+      "title": "Set up your profile",
+      "description": "Tell us a bit about yourself.",
+      "fields": [
+        { "name": "full_name", "type": "text", "label": "Your name", "placeholder": "Jane Smith", "required": true },
+        { "name": "company", "type": "text", "label": "Company", "placeholder": "Acme Inc." }
+      ]
+    },
+    {
+      "id": "use_case",
+      "title": "What are you building?",
+      "description": "We'll personalize your experience.",
+      "fields": [
+        { "name": "use_case", "type": "radio", "label": "Primary use case", "required": true, "options": [
+          { "value": "saas", "label": "🚀 SaaS product" },
+          { "value": "marketplace", "label": "🛍 Marketplace" },
+          { "value": "internal", "label": "🏢 Internal tool" },
+          { "value": "other", "label": "🤔 Something else" }
+        ]}
+      ]
+    },
+    {
+      "id": "team_size",
+      "title": "How big is your team?",
+      "description": "This helps us recommend the right plan.",
+      "fields": [
+        { "name": "team_size", "type": "radio", "label": "Team size", "required": true, "options": [
+          { "value": "solo", "label": "👤 Just me" },
+          { "value": "small", "label": "👥 2–10 people" },
+          { "value": "medium", "label": "🏢 11–50 people" },
+          { "value": "large", "label": "🏭 50+ people" }
+        ]}
+      ]
+    }
+  ]
+}
