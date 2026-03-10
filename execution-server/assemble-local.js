@@ -83,6 +83,13 @@ function assess(blockId, fit, notes, permanent = null) {
 
 const ASSEMBLERS = {
 
+  'shadcn-init': () => {
+    log('shadcn-init: shadcn/ui component foundation')
+    const shadcnSetup = require(path.join(BLOCKS_DIR, 'shadcn-init/setup.js'))
+    shadcnSetup(outDir, config)
+    assess('shadcn-init', 'perfect', '50+ polished Radix-based components available after init')
+  },
+
   'next-shell': () => {
     log('next-shell: Next.js App Shell')
     copyBlock('next-shell', 'package.json', 'package.json')
@@ -488,7 +495,7 @@ export default function HomePage() {
 // ── Run assembly ──────────────────────────────────────────────────────────────
 
 const ordered = [
-  'next-shell', 'supabase', 'auth-email', 'auth-google',
+  'shadcn-init', 'next-shell', 'supabase', 'auth-email', 'auth-google',
   'dashboard-layout', 'crud-table', 'crud-api',
   'bookings', 'search-filters', 'reviews-ratings',
   'image-gallery', 'map-view', 'user-profiles', 'chat-realtime',
