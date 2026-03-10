@@ -122,7 +122,7 @@ export default function VMPage() {
     setRunning(false)
   }
 
-  const s = { minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif', display: 'flex' }
+  const s = { minHeight: '100vh', background: 'linear-gradient(180deg, #060d1b 0%, #03080f 100%)', fontFamily: 'system-ui, sans-serif', display: 'flex' }
 
   return (
     <div style={s}>

@@ -81,7 +81,7 @@ export default function SettingsPage() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {SERVICES.map(s => (
-            <div key={s.key} style={{ background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155' }}>
+            <div key={s.key} style={{ background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                 <span style={{ fontSize: 18 }}>{s.icon}</span>
                 <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>{s.label}</span>
@@ -104,9 +104,10 @@ export default function SettingsPage() {
                   onClick={() => saveKey(s.key)}
                   disabled={!inputs[s.key]?.trim() || saving === s.key}
                   style={{
-                    padding: '9px 18px', background: '#6366f1', border: 'none', borderRadius: 8,
+                    padding: '9px 18px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', borderRadius: 8,
                     color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                     opacity: !inputs[s.key]?.trim() ? 0.4 : 1,
+                    boxShadow: inputs[s.key]?.trim() ? '0 2px 8px rgba(99,102,241,0.3)' : 'none',
                   }}>
                   {saving === s.key ? '...' : 'Save'}
                 </button>
@@ -116,7 +117,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Org Preset Selector */}
-        <div style={{ marginTop: 28, background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155' }}>
+        <div style={{ marginTop: 28, background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
             <span style={{ fontSize: 18 }}>🏢</span>
             <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Default Org Structure</span>
@@ -152,7 +153,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div style={{ marginTop: 28, background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155' }}>
+        <div style={{ marginTop: 28, background: '#1e293b', borderRadius: 10, padding: '16px 20px', border: '1px solid #334155', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <span style={{ fontSize: 18 }}>🖥️</span>
             <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Virtual Machines</span>

@@ -21,7 +21,7 @@ export default function TransactionsPage() {
   const total = transactions.reduce((s, t) => s + (t.cost_usd || 0), 0)
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f0f0f', padding: '40px 24px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #060d1b 0%, #03080f 100%)', padding: '40px 24px', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ maxWidth: 800, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>

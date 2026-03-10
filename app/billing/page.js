@@ -107,12 +107,12 @@ export default function BillingPage() {
         )}
 
         {/* Today's spend */}
-        <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, marginBottom: 20, border: '1px solid #334155' }}>
+        <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, marginBottom: 20, border: '1px solid #334155', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
             <span style={{ color: '#94a3b8', fontSize: 14, fontWeight: 600 }}>Today's AI Spend</span>
-            <span style={{ color: '#e2e8f0', fontSize: 22, fontWeight: 700 }}>
+            <span style={{ color: '#e2e8f0', fontSize: 28, fontWeight: 700 }}>
               ${todaySpend.toFixed(4)}
-              <span style={{ color: '#475569', fontSize: 13, fontWeight: 400 }}> / ${settings.daily_budget_usd.toFixed(2)}</span>
+              <span style={{ color: '#475569', fontSize: 14, fontWeight: 400 }}> / ${settings.daily_budget_usd.toFixed(2)}</span>
             </span>
           </div>
           <div style={{ height: 8, background: '#0f172a', borderRadius: 4, overflow: 'hidden' }}>
@@ -129,7 +129,7 @@ export default function BillingPage() {
         </div>
 
         {/* Daily budget setting */}
-        <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, marginBottom: 20, border: '1px solid #334155' }}>
+        <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, marginBottom: 20, border: '1px solid #334155', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
           <h3 style={{ margin: '0 0 16px', color: '#e2e8f0', fontSize: 15, fontWeight: 600 }}>Daily Spending Limit</h3>
           <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: 13 }}>
             AI will stop making API calls once this limit is reached. Resets at midnight UTC.
@@ -166,16 +166,17 @@ export default function BillingPage() {
             onClick={saveBudget}
             disabled={saving}
             style={{
-              marginTop: 16, width: '100%', padding: '11px', background: '#6366f1',
+              marginTop: 16, width: '100%', padding: '12px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
               border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 600,
               cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
+              boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
             }}>
             {saving ? 'Saving...' : 'Save Daily Limit'}
           </button>
         </div>
 
         {/* Credit card */}
-        <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, border: '1px solid #334155' }}>
+        <div style={{ background: '#1e293b', borderRadius: 12, padding: 24, border: '1px solid #334155', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
           <h3 style={{ margin: '0 0 16px', color: '#e2e8f0', fontSize: 15, fontWeight: 600 }}>Payment Method</h3>
           {settings.card_last4 ? (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

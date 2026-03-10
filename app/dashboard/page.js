@@ -377,7 +377,7 @@ export default function Dashboard() {
           { href: '/billing', icon: '💳', label: 'Billing', accent: '#6366f1' },
           { href: '/vm', icon: '🖥', label: 'VMs', accent: null },
           { href: '/settings', icon: '⚙', label: 'Settings', accent: null },
-          { href: '/setup', icon: '🚀', label: 'Setup', accent: '#f59e0b' },
+          { href: '/setup', icon: '🚀', label: 'Setup', accent: null },
         ].map(({ href, icon, label, accent }) => (
           <a key={href} href={href} style={{
             fontSize: 11, color: accent || '#64748b', textDecoration: 'none',
