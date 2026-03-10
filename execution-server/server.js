@@ -115,10 +115,11 @@ async function handleBrowser(action, sessionId, params) {
     }
 
     if (action === 'eval') {
-      // Execute arbitrary JS in page context, then return screenshot
-      const result = await page.evaluate(new Function('return (' + params.code + ')()').toString().replace(/^function.*\{/, '').replace(/\}$/, '') || params.code).catch(async () => {
-        return await page.evaluate(params.code)
-      })
+      // Execute arbitrary JS expression in page context, then return screenshot
+      // Wrap in IIFE if it looks like a function expression
+      const expr = params.code.trim()
+      const wrapped = (expr.startsWith('(') || expr.startsWith('function') || expr.startsWith('async')) ? `(${expr})()` : expr
+      const result = await page.evaluate(wrapped).catch(e => 'eval error: ' + e.message)
       await page.waitForTimeout(params.wait || 500)
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
       return { ok: true, result, url: page.url(), screenshot: screenshot.toString('base64') }
