@@ -247,10 +247,19 @@ export default function BuilderPreview({ visible, workspaceId }) {
         }}>
           <style>{`div::-webkit-scrollbar{display:none}`}</style>
           {entries.length === 0 && (
-            <div style={{ color: '#3d5473', marginTop: 40, textAlign: 'center', fontSize: 12, lineHeight: 1.8, padding: '0 20px' }}>
-              <div style={{ fontSize: 28, opacity: 0.4, marginBottom: 12 }}>⬡</div>
-              <div style={{ color: '#475569', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>No build running</div>
-              <div style={{ color: '#334155' }}>Terminal output will appear here once an agent starts executing commands.</div>
+            <div style={{ marginTop: 60, textAlign: 'center', padding: '0 24px' }}>
+              <div style={{ fontSize: 36, marginBottom: 16, opacity: 0.25 }}>▶</div>
+              <div style={{ color: '#64748b', fontWeight: 600, fontSize: 13, marginBottom: 8 }}>No build running</div>
+              <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.7 }}>
+                Tell the CTO what to build in the chat. Terminal output, file writes, and deploy URLs will stream here live.
+              </div>
+              <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left' }}>
+                {['$ npm install', '$ node index.js', '$ vercel --prod'].map(cmd => (
+                  <div key={cmd} style={{ background: '#040b14', border: '1px solid #0f2030', borderRadius: 6, padding: '7px 12px', color: '#334155', fontSize: 11, fontFamily: 'monospace' }}>
+                    <span style={{ color: '#1e3a5f' }}>$ </span>{cmd.slice(2)}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {entries.map(e => {

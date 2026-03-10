@@ -392,7 +392,7 @@ export default function Dashboard() {
         {/* Center: Org Chart */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 200, height: '100%' }}>
           <div style={{ height: 36, borderBottom: '1px solid #0f172a', background: 'rgba(5,13,26,0.9)', display: 'flex', alignItems: 'center', padding: '0 16px', gap: 10 }}>
-            <span style={{ fontSize: 11, color: activeTab?.orgData?.nodes?.length ? '#475569' : '#334155', fontWeight: 500 }}>
+            <span style={{ fontSize: 11, color: activeTab?.orgData?.nodes?.length ? '#64748b' : '#475569', fontWeight: 500 }}>
               {activeTab?.orgData?.nodes?.length
                 ? `${activeTab.orgData.nodes.filter(n => n.id !== 'rules').length} agents assembled · click to chat`
                 : 'Agent org chart will appear here after you describe what to build'}
