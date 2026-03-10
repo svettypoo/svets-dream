@@ -490,19 +490,127 @@ export default function HomePage() {
     assess('cron', 'good', 'Cron endpoint + runner. Useful for: send booking reminders, expire old bookings, send review requests.')
     done('cron')
   },
+
+  'roles-permissions': () => {
+    log('roles-permissions: RBAC — role-based access control')
+    copyBlock('roles-permissions', 'lib/rbac.js', 'lib/rbac.js')
+    copyBlock('roles-permissions', 'app/api/roles/route.js', 'app/api/roles/route.js')
+    copyBlock('roles-permissions', 'components/RoleManager.jsx', 'components/RoleManager.jsx')
+    copyBlock('roles-permissions', 'components/PermissionGate.jsx', 'components/PermissionGate.jsx')
+    // Add role column to supabase schema (append to schema collector below)
+    assess('roles-permissions', 'perfect', 'Admin/moderator/member/guest hierarchy. PermissionGate wraps any UI element. requireRole() guards any API route.')
+    done('roles-permissions')
+  },
+
+  'stripe-subscriptions': () => {
+    log('stripe-subscriptions: SaaS recurring billing')
+    copyBlock('stripe-subscriptions', 'lib/stripe-subscriptions.js', 'lib/stripe-subscriptions.js')
+    copyBlock('stripe-subscriptions', 'app/api/billing/route.js', 'app/api/billing/route.js')
+    copyBlock('stripe-subscriptions', 'app/api/billing/webhook/route.js', 'app/api/billing/webhook/route.js')
+    copyBlock('stripe-subscriptions', 'components/SubscriptionStatus.jsx', 'components/SubscriptionStatus.jsx')
+    assess('stripe-subscriptions', 'perfect', 'Full subscription lifecycle: Checkout → webhook sync → Billing Portal. SubscriptionStatus shows plan + manage button.')
+    done('stripe-subscriptions')
+  },
+
+  'waitlist': () => {
+    log('waitlist: Pre-launch signup')
+    copyBlock('waitlist', 'app/waitlist/page.js', 'app/waitlist/page.js')
+    copyBlock('waitlist', 'app/api/waitlist/route.js', 'app/api/waitlist/route.js')
+    assess('waitlist', 'perfect', 'Waitlist with position tracking + email confirmation. Replace landing CTA with /waitlist for pre-launch mode.')
+    done('waitlist')
+  },
+
+  'seo-meta': () => {
+    log('seo-meta: SEO metadata + structured data')
+    copyBlock('seo-meta', 'lib/seo.js', 'lib/seo.js')
+    copyBlock('seo-meta', 'components/JsonLd.jsx', 'components/JsonLd.jsx')
+    copyBlock('seo-meta', 'components/Breadcrumbs.jsx', 'components/Breadcrumbs.jsx')
+    assess('seo-meta', 'perfect', 'buildMetadata() + JSON-LD generators (article/product/faq/breadcrumb). Zero config needed.')
+    done('seo-meta')
+  },
+
+  'blog': () => {
+    log('blog: Blog / CMS')
+    copyBlock('blog', 'lib/blog.js', 'lib/blog.js')
+    copyBlock('blog', 'app/blog/page.js', 'app/blog/page.js')
+    copyBlock('blog', 'app/blog/[slug]/page.js', 'app/blog/[slug]/page.js')
+    copyBlock('blog', 'app/api/posts/route.js', 'app/api/posts/route.js')
+    assess('blog', 'good', 'Full blog with tags, pagination, SEO metadata. Needs: admin editor UI (use form-builder or add rich-text editor).')
+    done('blog')
+  },
+
+  'audit-log': () => {
+    log('audit-log: Event audit trail')
+    copyBlock('audit-log', 'lib/audit.js', 'lib/audit.js')
+    copyBlock('audit-log', 'app/api/audit/route.js', 'app/api/audit/route.js')
+    copyBlock('audit-log', 'components/AuditLogViewer.jsx', 'components/AuditLogViewer.jsx')
+    assess('audit-log', 'perfect', 'Fire-and-forget audit() helper. AuditLogViewer table with filter by action/resource. Add audit() calls to any API route.')
+    done('audit-log')
+  },
+
+  'dark-mode': () => {
+    log('dark-mode: Dark/light theme toggle')
+    copyBlock('dark-mode', 'components/ThemeProvider.jsx', 'components/ThemeProvider.jsx')
+    copyBlock('dark-mode', 'components/ThemeToggle.jsx', 'components/ThemeToggle.jsx')
+    // Patch layout.js to wrap with ThemeProvider
+    const layoutPath = path.join(outDir, 'app/layout.js')
+    if (!dryRun && fs.existsSync(layoutPath)) {
+      let lp = fs.readFileSync(layoutPath, 'utf8')
+      if (!lp.includes('ThemeProvider')) {
+        lp = `import { ThemeProvider } from '@/components/ThemeProvider'\n` + lp
+        lp = lp.replace(/{children}/, `<ThemeProvider>{children}</ThemeProvider>`)
+        fs.writeFileSync(layoutPath, lp, 'utf8')
+        console.log('   ✎ Patched app/layout.js → wrapped with ThemeProvider')
+      }
+    }
+    // Patch tailwind.config.js to enable darkMode: 'class'
+    const tcPath = path.join(outDir, 'tailwind.config.js')
+    if (!dryRun && fs.existsSync(tcPath)) {
+      let tc = fs.readFileSync(tcPath, 'utf8')
+      if (!tc.includes("darkMode")) {
+        tc = tc.replace("module.exports = {", "module.exports = {\n  darkMode: 'class',")
+        fs.writeFileSync(tcPath, tc, 'utf8')
+        console.log('   ✎ Patched tailwind.config.js → added darkMode: "class"')
+      }
+    }
+    assess('dark-mode', 'perfect', 'System/light/dark with localStorage persistence. ThemeToggle ready to drop into any navbar.')
+    done('dark-mode')
+  },
+
+  'form-builder': () => {
+    log('form-builder: Drag-sort form editor + renderer')
+    copyBlock('form-builder', 'components/FormBuilderEditor.jsx', 'components/FormBuilderEditor.jsx')
+    copyBlock('form-builder', 'components/FormRenderer.jsx', 'components/FormRenderer.jsx')
+    copyBlock('form-builder', 'app/api/forms/route.js', 'app/api/forms/route.js')
+    assess('form-builder', 'perfect', 'Visual form builder with 10 field types. FormRenderer handles end-user submissions to DB. No code required for new forms.')
+    done('form-builder')
+  },
 }
 
 // ── Run assembly ──────────────────────────────────────────────────────────────
 
 const ordered = [
-  'shadcn-init', 'next-shell', 'supabase', 'auth-email', 'auth-google',
+  // Foundation
+  'shadcn-init', 'next-shell', 'supabase',
+  // Auth
+  'auth-email', 'auth-google', 'roles-permissions',
+  // Layout
   'dashboard-layout', 'crud-table', 'crud-api',
+  // SEO (before blog — blog depends on it)
+  'seo-meta',
+  // Core features
   'bookings', 'search-filters', 'reviews-ratings',
   'image-gallery', 'map-view', 'user-profiles', 'chat-realtime',
-  'notifications', 'stripe', 'stripe-connect',
+  // Notifications + payments
+  'notifications', 'stripe', 'stripe-connect', 'stripe-subscriptions',
+  // Communication
   'sms-telnyx', 'email-resend', 'email-marketing',
-  'file-upload', 'tasks', 'about-page', 'pricing-page', 'contact-form',
-  'landing', 'settings-page', 'cron',
+  // Content + forms
+  'file-upload', 'tasks', 'blog', 'form-builder', 'waitlist',
+  // Pages
+  'about-page', 'pricing-page', 'contact-form', 'landing', 'settings-page',
+  // Ops
+  'cron', 'audit-log', 'dark-mode',
 ]
 
 ensureDir(outDir)

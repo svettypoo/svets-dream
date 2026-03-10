@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Reusable frontend/backend blocks for rapid app scaffolding",
   "blocks": [
     {
@@ -298,6 +298,78 @@
       "files": ["chat-realtime/components/ChatWindow.jsx", "chat-realtime/components/ConversationList.jsx", "chat-realtime/app/api/messages/route.js"],
       "requires": ["next-shell", "supabase"],
       "tags": ["chat", "messaging", "realtime", "supabase"]
+    },
+    {
+      "id": "roles-permissions",
+      "name": "Roles & Permissions (RBAC)",
+      "description": "Role hierarchy (admin/moderator/member/guest), requireRole() API guard, PermissionGate component, RoleManager admin UI",
+      "type": "auth",
+      "files": ["roles-permissions/lib/rbac.js", "roles-permissions/app/api/roles/route.js", "roles-permissions/components/RoleManager.jsx", "roles-permissions/components/PermissionGate.jsx", "roles-permissions/schema.sql"],
+      "requires": ["supabase", "auth-email"],
+      "tags": ["rbac", "roles", "permissions", "admin", "security"]
+    },
+    {
+      "id": "stripe-subscriptions",
+      "name": "Stripe Subscriptions (SaaS Billing)",
+      "description": "Customer creation, Checkout sessions for recurring billing, Billing Portal, webhook sync to subscriptions table",
+      "type": "payment",
+      "files": ["stripe-subscriptions/lib/stripe-subscriptions.js", "stripe-subscriptions/app/api/billing/route.js", "stripe-subscriptions/app/api/billing/webhook/route.js", "stripe-subscriptions/components/SubscriptionStatus.jsx", "stripe-subscriptions/schema.sql"],
+      "requires": ["supabase"],
+      "tags": ["stripe", "subscriptions", "saas", "billing", "recurring"]
+    },
+    {
+      "id": "waitlist",
+      "name": "Waitlist / Pre-launch Signup",
+      "description": "Waitlist landing page with position tracking, email confirmation via Resend, admin list view",
+      "type": "page",
+      "files": ["waitlist/app/waitlist/page.js", "waitlist/app/api/waitlist/route.js", "waitlist/schema.sql"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["waitlist", "launch", "leads", "email"]
+    },
+    {
+      "id": "seo-meta",
+      "name": "SEO Metadata & Structured Data",
+      "description": "buildMetadata() helper, JSON-LD generators (article/product/faq/breadcrumb), Breadcrumbs component",
+      "type": "component",
+      "files": ["seo-meta/lib/seo.js", "seo-meta/components/JsonLd.jsx", "seo-meta/components/Breadcrumbs.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["seo", "meta", "og", "structured-data", "schema"]
+    },
+    {
+      "id": "blog",
+      "name": "Blog (CMS)",
+      "description": "Blog index page with tag filter + pagination, post detail with prose rendering, CRUD API, slugs, view counting",
+      "type": "page",
+      "files": ["blog/lib/blog.js", "blog/app/blog/page.js", "blog/app/blog/[slug]/page.js", "blog/app/api/posts/route.js", "blog/schema.sql"],
+      "requires": ["next-shell", "supabase", "seo-meta"],
+      "tags": ["blog", "cms", "content", "seo", "articles"]
+    },
+    {
+      "id": "audit-log",
+      "name": "Audit Log",
+      "description": "Fire-and-forget audit() helper, paginated AuditLogViewer table, GET API with filters by user/action/resource",
+      "type": "component",
+      "files": ["audit-log/lib/audit.js", "audit-log/app/api/audit/route.js", "audit-log/components/AuditLogViewer.jsx", "audit-log/schema.sql"],
+      "requires": ["supabase"],
+      "tags": ["audit", "logging", "compliance", "admin", "security"]
+    },
+    {
+      "id": "dark-mode",
+      "name": "Dark Mode Toggle",
+      "description": "ThemeProvider (system/light/dark, persisted in localStorage), ThemeToggle button with sun/moon icons",
+      "type": "component",
+      "files": ["dark-mode/components/ThemeProvider.jsx", "dark-mode/components/ThemeToggle.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["dark-mode", "theme", "ui", "accessibility"]
+    },
+    {
+      "id": "form-builder",
+      "name": "Form Builder",
+      "description": "Drag-sort form editor UI (10 field types, options, required), FormRenderer for end-users, submissions stored in DB",
+      "type": "component",
+      "files": ["form-builder/components/FormBuilderEditor.jsx", "form-builder/components/FormRenderer.jsx", "form-builder/app/api/forms/route.js", "form-builder/schema.sql"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["forms", "builder", "survey", "submissions", "no-code"]
     }
   ]
 }
