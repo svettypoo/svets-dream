@@ -1,21 +1,27 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 
 const RAILWAY_URL = 'https://svets-dream-production.up.railway.app'
 const EXEC_TOKEN = 'svets-exec-token-2026'
 
 const ALL_BLOCKS = [
-  { id: 'next-shell',       label: 'Next.js Shell',     desc: 'package.json, layout, Tailwind',    icon: '⚡', required: true,  color: '#f59e0b' },
-  { id: 'supabase',         label: 'Supabase',          desc: 'DB client, middleware',              icon: '🗄️', color: '#3ecf8e' },
-  { id: 'auth-email',       label: 'Auth',              desc: 'Login, signup, logout',             icon: '🔐', color: '#6366f1' },
-  { id: 'dashboard-layout', label: 'Dashboard',         desc: 'Sidebar nav, auth guard',           icon: '🧭', color: '#8b5cf6' },
-  { id: 'crud-table',       label: 'CRUD Tables',       desc: 'DataTable per entity',              icon: '📋', color: '#0ea5e9' },
-  { id: 'crud-api',         label: 'CRUD APIs',         desc: 'REST routes per entity',            icon: '🔌', color: '#06b6d4' },
-  { id: 'ai-chat',          label: 'AI Chat',           desc: 'Streaming Claude assistant',        icon: '🤖', color: '#a78bfa' },
-  { id: 'landing',          label: 'Landing Page',      desc: 'Hero, features, CTA',              icon: '🏠', color: '#22d3ee' },
-  { id: 'stripe',           label: 'Stripe',            desc: 'Payment intent + webhook',          icon: '💳', color: '#635bff' },
-  { id: 'email-resend',     label: 'Email',             desc: 'Transactional via Resend',          icon: '✉️', color: '#f97316' },
-  { id: 'file-upload',      label: 'File Upload',       desc: 'Supabase Storage',                  icon: '📎', color: '#84cc16' },
+  { id: 'next-shell',       label: 'Next.js Shell',     desc: 'package.json, layout, Tailwind',      icon: '⚡', required: true,  color: '#f59e0b' },
+  { id: 'supabase',         label: 'Supabase',          desc: 'DB client, middleware',                icon: '🗄️', color: '#3ecf8e' },
+  { id: 'auth-email',       label: 'Email Auth',        desc: 'Login, signup, logout',               icon: '🔐', color: '#6366f1' },
+  { id: 'auth-google',      label: 'Google OAuth',      desc: 'One-click Google/GitHub SSO',          icon: '🔑', color: '#4285f4' },
+  { id: 'dashboard-layout', label: 'Dashboard',         desc: 'Smart sidebar nav, auth guard',        icon: '🧭', color: '#8b5cf6' },
+  { id: 'crud-table',       label: 'CRUD Tables',       desc: 'DataTable per entity (smart)',         icon: '📋', color: '#0ea5e9' },
+  { id: 'crud-api',         label: 'CRUD APIs',         desc: 'REST routes per entity (smart)',       icon: '🔌', color: '#06b6d4' },
+  { id: 'charts',           label: 'Charts & Stats',    desc: 'StatsCards + Line/Bar charts',         icon: '📊', color: '#f59e0b' },
+  { id: 'kanban',           label: 'Kanban Board',      desc: 'Drag-drop board, smart columns',       icon: '🗂️', color: '#ec4899' },
+  { id: 'notifications',    label: 'Notifications',     desc: 'Toast alerts + notification bell',     icon: '🔔', color: '#f97316' },
+  { id: 'settings-page',    label: 'Settings',          desc: 'Profile, password, notif prefs',       icon: '⚙️', color: '#94a3b8' },
+  { id: 'ai-chat',          label: 'AI Chat',           desc: 'Streaming Claude assistant (smart)',   icon: '🤖', color: '#a78bfa' },
+  { id: 'landing',          label: 'Landing Page',      desc: 'Hero + CTA, AI-written copy',          icon: '🏠', color: '#22d3ee' },
+  { id: 'stripe',           label: 'Stripe',            desc: 'Payment intent + webhook',             icon: '💳', color: '#635bff' },
+  { id: 'email-resend',     label: 'Email',             desc: 'Transactional via Resend',             icon: '✉️', color: '#fb923c' },
+  { id: 'file-upload',      label: 'File Upload',       desc: 'Supabase Storage',                     icon: '📎', color: '#84cc16' },
+  { id: 'cron',             label: 'Cron Jobs',         desc: 'Scheduled jobs + Railway runner',      icon: '⏰', color: '#64748b' },
 ]
 
 const SMART_DEFAULTS = ['next-shell', 'supabase', 'auth-email', 'dashboard-layout', 'crud-table', 'crud-api']
@@ -31,6 +37,9 @@ export default function ForgePage() {
   const [installLog, setInstallLog] = useState([])
   const [result, setResult] = useState(null)
   const [config, setConfig] = useState(null)
+  const [preview, setPreview] = useState(null) // { url, loading, error }
+  const [deploying, setDeploying] = useState(false)
+  const [deployResult, setDeployResult] = useState(null)
   const abortRef = useRef(null)
   const filesRef = useRef(null)
   const installRef = useRef(null)
@@ -121,6 +130,47 @@ export default function ForgePage() {
     }
   }
 
+  async function handlePreview() {
+    if (!result) return
+    setPreview({ loading: true, url: null, error: null })
+    try {
+      const res = await fetch(`${RAILWAY_URL}/forge/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
+        body: JSON.stringify({ workspaceId: wsId.current, appPath: result.appPath }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setPreview({ loading: false, url: `${RAILWAY_URL}${data.proxyUrl}`, error: null })
+      } else {
+        setPreview({ loading: false, url: null, error: data.error || 'Preview failed' })
+      }
+    } catch (err) {
+      setPreview({ loading: false, url: null, error: err.message })
+    }
+  }
+
+  async function handleDeploy() {
+    if (!result) return
+    setDeploying(true)
+    setDeployResult(null)
+    try {
+      // Deploy via execution server — runs vercel --yes in the app directory
+      const res = await fetch(`${RAILWAY_URL}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
+        body: JSON.stringify({ command: 'npx vercel --yes 2>&1 | tail -5', cwd: result.appPath }),
+      })
+      const text = await res.text()
+      const urlMatch = text.match(/https:\/\/\S+\.vercel\.app/)
+      setDeployResult({ ok: !!urlMatch, output: text, url: urlMatch ? urlMatch[0] : null })
+    } catch (err) {
+      setDeployResult({ ok: false, output: err.message, url: null })
+    } finally {
+      setDeploying(false)
+    }
+  }
+
   const totalFiles = files.length
   const doneBlocks = Object.values(blockStatus).filter(s => s === 'done').length
   const totalBlocks = selected.size
@@ -164,10 +214,11 @@ export default function ForgePage() {
               <label style={labelStyle}>Quick presets</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                 {[
-                  { label: 'SaaS', ids: ['supabase','auth-email','dashboard-layout','crud-table','crud-api','ai-chat','stripe'] },
+                  { label: 'SaaS', ids: ['supabase','auth-email','auth-google','dashboard-layout','crud-table','crud-api','charts','notifications','ai-chat','stripe'] },
                   { label: 'Landing', ids: ['landing','auth-email'] },
-                  { label: 'Full Stack', ids: ['supabase','auth-email','dashboard-layout','crud-table','crud-api','ai-chat','landing','stripe','email-resend'] },
+                  { label: 'Full Stack', ids: ['supabase','auth-email','auth-google','dashboard-layout','crud-table','crud-api','charts','notifications','kanban','settings-page','ai-chat','landing','stripe','email-resend','cron'] },
                   { label: 'API only', ids: ['supabase','crud-api'] },
+                  { label: 'Kanban App', ids: ['supabase','auth-email','dashboard-layout','kanban','notifications','settings-page'] },
                 ].map(p => (
                   <button key={p.label} type="button" onClick={() => selectPreset(p.ids)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, border: '1px solid #1e293b', background: '#0f172a', color: '#64748b', cursor: 'pointer' }}>
                     {p.label}
@@ -294,21 +345,54 @@ export default function ForgePage() {
 
               {/* Done banner */}
               {phase === 'done' && result && (
-                <div style={{ gridRow: '3 / 4', gridColumn: '1 / 3', padding: '12px 20px', background: '#0a1e12', borderTop: '1px solid #166534', display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#4ade80' }}>✓ {result.appName} scaffolded — {totalFiles} files written</div>
-                    <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>Path: {result.appPath}</div>
-                  </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-                    <a href={`/?ws=${wsId.current}`} style={{ padding: '7px 16px', borderRadius: 7, background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-                      💬 Fine-tune with Claude
-                    </a>
-                    <a href={`/?ws=${wsId.current}&prompt=Take a screenshot of the homepage at http://localhost:3000 in the ${result.relPath} directory (run next dev first), then send it to Gemini for UI analysis and improvement suggestions`} style={{ padding: '7px 16px', borderRadius: 7, background: '#1e293b', color: '#a78bfa', fontSize: 12, fontWeight: 700, textDecoration: 'none', border: '1px solid #334155' }}>
-                      👁 Gemini UI Review
-                    </a>
-                    <button onClick={() => { setPhase('config'); setEvents([]); setFiles([]); setInstallLog([]); setBlockStatus({}); setConfig(null); setResult(null) }} style={{ padding: '7px 16px', borderRadius: 7, background: '#1e293b', color: '#64748b', fontSize: 12, cursor: 'pointer', border: '1px solid #1e293b' }}>
-                      New app
-                    </button>
+                <div style={{ gridRow: '3 / 4', gridColumn: '1 / 3', borderTop: '1px solid #166534', background: '#050d1a' }}>
+                  {/* Preview iframe */}
+                  {preview?.url && (
+                    <div style={{ borderBottom: '1px solid #0f172a', background: '#0a1220' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid #0f172a' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80' }} />
+                        <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>{preview.url}</span>
+                        <button onClick={() => setPreview(null)} style={{ marginLeft: 'auto', fontSize: 10, color: '#475569', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                      </div>
+                      <iframe src={preview.url} style={{ width: '100%', height: 340, border: 'none', background: '#fff' }} title="App Preview" />
+                    </div>
+                  )}
+                  {preview?.error && (
+                    <div style={{ padding: '8px 16px', background: '#1a0a0a', borderBottom: '1px solid #450a0a' }}>
+                      <span style={{ fontSize: 11, color: '#f87171' }}>Preview error: {preview.error}</span>
+                    </div>
+                  )}
+                  {deployResult && (
+                    <div style={{ padding: '8px 16px', background: deployResult.ok ? '#0a1e12' : '#1a0a0a', borderBottom: `1px solid ${deployResult.ok ? '#166534' : '#450a0a'}` }}>
+                      {deployResult.url
+                        ? <span style={{ fontSize: 11, color: '#4ade80' }}>🚀 Deployed: <a href={deployResult.url} target="_blank" rel="noreferrer" style={{ color: '#4ade80' }}>{deployResult.url}</a></span>
+                        : <span style={{ fontSize: 11, color: '#f87171' }}>Deploy output: {deployResult.output?.slice(0, 200)}</span>}
+                    </div>
+                  )}
+                  <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#4ade80' }}>✓ {result.appName} scaffolded — {totalFiles} files written</div>
+                      <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>Path: {result.appPath}</div>
+                    </div>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {!preview?.url && (
+                        <button onClick={handlePreview} disabled={preview?.loading} style={{ padding: '7px 14px', borderRadius: 7, background: '#0f172a', color: preview?.loading ? '#475569' : '#22d3ee', fontSize: 12, fontWeight: 700, cursor: preview?.loading ? 'default' : 'pointer', border: '1px solid #164e63' }}>
+                          {preview?.loading ? '⟳ Starting…' : '▶ Preview'}
+                        </button>
+                      )}
+                      <button onClick={handleDeploy} disabled={deploying} style={{ padding: '7px 14px', borderRadius: 7, background: deploying ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: deploying ? 'default' : 'pointer', border: 'none' }}>
+                        {deploying ? '⟳ Deploying…' : '🚀 Deploy to Vercel'}
+                      </button>
+                      <a href={`/?ws=${wsId.current}`} style={{ padding: '7px 14px', borderRadius: 7, background: '#0a1628', color: '#818cf8', fontSize: 12, fontWeight: 700, textDecoration: 'none', border: '1px solid #312e81', display: 'flex', alignItems: 'center' }}>
+                        💬 Fine-tune with Claude
+                      </a>
+                      <a href={`/?ws=${wsId.current}&prompt=Run next dev in ${result.relPath}, take a screenshot of http://localhost:3000, then send it to Gemini for UI analysis and improvement suggestions`} style={{ padding: '7px 14px', borderRadius: 7, background: '#1e293b', color: '#a78bfa', fontSize: 12, fontWeight: 700, textDecoration: 'none', border: '1px solid #334155', display: 'flex', alignItems: 'center' }}>
+                        👁 Gemini UI Review
+                      </a>
+                      <button onClick={() => { setPhase('config'); setEvents([]); setFiles([]); setInstallLog([]); setBlockStatus({}); setConfig(null); setResult(null); setPreview(null); setDeployResult(null) }} style={{ padding: '7px 14px', borderRadius: 7, background: '#0f172a', color: '#475569', fontSize: 12, cursor: 'pointer', border: '1px solid #1e293b' }}>
+                        New app
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

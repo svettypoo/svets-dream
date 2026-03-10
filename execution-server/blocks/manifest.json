@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Reusable frontend/backend blocks for rapid app scaffolding",
   "blocks": [
     {
@@ -30,76 +30,137 @@
       "tags": ["auth", "login", "supabase"]
     },
     {
+      "id": "auth-google",
+      "name": "Google / GitHub OAuth",
+      "description": "One-click Google or GitHub login via Supabase OAuth, callback handler",
+      "type": "auth",
+      "files": ["auth-google/components/GoogleAuthButton.jsx", "auth-google/app/api/auth/callback/route.js"],
+      "requires": ["supabase"],
+      "tags": ["auth", "google", "oauth", "sso"]
+    },
+    {
       "id": "dashboard-layout",
       "name": "Dashboard Layout",
-      "description": "Sidebar nav + header shell, mobile-responsive, slot for page content",
+      "description": "Smart sidebar nav (auto-generated from entities), header shell, auth guard",
       "type": "layout",
       "files": ["dashboard/app/dashboard/layout.js", "dashboard/components/Sidebar.jsx"],
       "requires": ["next-shell"],
-      "tags": ["dashboard", "layout", "nav"]
+      "tags": ["dashboard", "layout", "nav"],
+      "smart": true
     },
     {
       "id": "crud-table",
-      "name": "CRUD Data Table",
-      "description": "DataTable component with sort, filter, pagination + add/edit/delete modals",
+      "name": "CRUD Data Tables",
+      "description": "DataTable component + one full page per entity (sort, filter, pagination)",
       "type": "component",
       "files": ["crud/components/DataTable.jsx"],
       "requires": ["next-shell"],
-      "tags": ["crud", "table", "data"]
+      "tags": ["crud", "table", "data"],
+      "smart": true
     },
     {
       "id": "crud-api",
-      "name": "CRUD API Route",
-      "description": "GET/POST/PATCH/DELETE API route template wired to Supabase",
+      "name": "CRUD API Routes",
+      "description": "One GET/POST/PATCH/DELETE API route per entity, wired to Supabase",
       "type": "api",
       "files": ["crud/app/api/template/route.js"],
       "requires": ["supabase"],
-      "tags": ["crud", "api", "supabase"]
+      "tags": ["crud", "api", "supabase"],
+      "smart": true
+    },
+    {
+      "id": "charts",
+      "name": "Charts & Stats",
+      "description": "StatsCard, LineChart, BarChart — smart dashboard overview using entity data",
+      "type": "component",
+      "files": ["charts/components/StatsCard.jsx", "charts/components/LineChart.jsx", "charts/components/BarChart.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["charts", "analytics", "dashboard"],
+      "smart": true
+    },
+    {
+      "id": "notifications",
+      "name": "Notifications",
+      "description": "Toast alerts (success/error/info/warning) + notification bell with dropdown",
+      "type": "component",
+      "files": ["notifications/components/Toast.jsx", "notifications/components/NotificationBell.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["notifications", "toast", "alerts"]
+    },
+    {
+      "id": "kanban",
+      "name": "Kanban Board",
+      "description": "Drag-and-drop kanban board — smart columns match entity status values",
+      "type": "component",
+      "files": ["kanban/components/KanbanBoard.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["kanban", "board", "workflow"],
+      "smart": true
+    },
+    {
+      "id": "settings-page",
+      "name": "Settings Page",
+      "description": "Profile, account (password change), notifications preferences — tabbed layout",
+      "type": "page",
+      "files": ["settings-page/app/dashboard/settings/page.js"],
+      "requires": ["supabase"],
+      "tags": ["settings", "profile", "account"]
     },
     {
       "id": "ai-chat",
-      "name": "AI Chat Component",
-      "description": "Streaming AI chat UI + API route using Claude (claude-sonnet-4-6)",
+      "name": "AI Chat",
+      "description": "Streaming Claude chat UI + API route — smart system prompt from app description",
       "type": "component",
       "files": ["ai-chat/components/AiChat.jsx", "ai-chat/app/api/ai/route.js"],
       "requires": ["next-shell"],
-      "tags": ["ai", "chat", "claude"]
+      "tags": ["ai", "chat", "claude"],
+      "smart": true
     },
     {
       "id": "landing",
       "name": "Landing Page",
-      "description": "Hero section + features grid + CTA + footer — dark modern design",
+      "description": "Hero + nav + CTA — headline, tagline, subheadline all AI-generated from description",
       "type": "page",
-      "files": ["landing/components/Hero.jsx", "landing/components/Features.jsx", "landing/app/page.js"],
+      "files": ["landing/components/Hero.jsx", "landing/app/page.js"],
       "requires": ["next-shell"],
-      "tags": ["landing", "marketing", "hero"]
+      "tags": ["landing", "marketing", "hero"],
+      "smart": true
     },
     {
       "id": "stripe",
       "name": "Stripe Payments",
-      "description": "Create payment intent, confirm, webhook handler, lib/stripe.js wrapper",
+      "description": "Payment intent API + webhook handler + lib/stripe.js wrapper",
       "type": "payment",
       "files": ["stripe/lib/stripe.js", "stripe/app/api/stripe/route.js"],
       "requires": ["supabase"],
       "tags": ["stripe", "payment", "checkout"]
     },
     {
-      "id": "file-upload",
-      "name": "File Upload (Supabase Storage)",
-      "description": "Multipart upload API → Supabase Storage bucket → returns public URL",
-      "type": "api",
-      "files": ["file-upload/app/api/upload/route.js", "file-upload/components/FileUpload.jsx"],
-      "requires": ["supabase"],
-      "tags": ["upload", "storage", "files"]
-    },
-    {
       "id": "email-resend",
-      "name": "Email Sending (Resend)",
-      "description": "lib/resend.js wrapper + transactional email API route template",
+      "name": "Email (Resend)",
+      "description": "lib/resend.js wrapper + transactional email API route",
       "type": "api",
       "files": ["email-resend/lib/resend.js", "email-resend/app/api/email/route.js"],
       "requires": ["next-shell"],
       "tags": ["email", "resend", "notifications"]
+    },
+    {
+      "id": "file-upload",
+      "name": "File Upload",
+      "description": "Multipart upload → Supabase Storage → returns public URL",
+      "type": "api",
+      "files": ["file-upload/app/api/upload/route.js"],
+      "requires": ["supabase"],
+      "tags": ["upload", "storage", "files"]
+    },
+    {
+      "id": "cron",
+      "name": "Cron Jobs",
+      "description": "Scheduled job API endpoint + Railway cron runner script",
+      "type": "api",
+      "files": ["cron/app/api/cron/route.js", "cron/scripts/railway-cron.js"],
+      "requires": ["next-shell"],
+      "tags": ["cron", "scheduled", "automation"]
     },
     {
       "id": "env-template",

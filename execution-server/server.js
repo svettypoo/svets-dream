@@ -29,6 +29,16 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 
+// ── Forge preview tracker ──────────────────────────────────────────────────────
+// Maps workspaceId → { process, port, appDir, startedAt }
+const forgePreviews = new Map()
+let nextPreviewPort = 4100
+function getFreePreviewPort() {
+  const p = nextPreviewPort++
+  if (nextPreviewPort > 4199) nextPreviewPort = 4100
+  return p
+}
+
 // ── Browser session manager ───────────────────────────────────────────────────
 // Keeps one Playwright browser context per sessionId so the page persists
 // across multiple tool calls within the same conversation.
@@ -830,10 +840,113 @@ Return this exact JSON structure (fill in all values for this specific app):
             writeFile('app/api/upload/route.js', `import { createAdminClient } from '@/lib/supabase-server'\nimport { NextResponse } from 'next/server'\nexport async function POST(req) {\n  const form = await req.formData()\n  const file = form.get('file')\n  if (!file) return NextResponse.json({ error: 'no file' }, { status: 400 })\n  const bytes = await file.arrayBuffer()\n  const buffer = Buffer.from(bytes)\n  const ext = file.name.split('.').pop()\n  const fileName = \`\${Date.now()}-\${Math.random().toString(36).slice(2)}.\${ext}\`\n  const supabase = createAdminClient()\n  const { error } = await supabase.storage.from('uploads').upload(fileName, buffer, { contentType: file.type })\n  if (error) return NextResponse.json({ error: error.message }, { status: 500 })\n  const { data } = supabase.storage.from('uploads').getPublicUrl(fileName)\n  return NextResponse.json({ url: data.publicUrl })\n}\n`)
             emit({ type: 'block_done', id: 'file-upload' })
           },
-        }
 
-        // ── Step 2: Run selected block assemblers ──────────────────────────
-        const ordered = ['next-shell', 'supabase', 'auth-email', 'dashboard-layout', 'crud-table', 'crud-api', 'ai-chat', 'landing', 'stripe', 'email-resend', 'file-upload']
+          'cron': () => {
+            emit({ type: 'block_start', id: 'cron', name: 'Cron Jobs', icon: '⏰' })
+            copyBlockFile('cron', 'app/api/cron/route.js', 'app/api/cron/route.js')
+            copyBlockFile('cron', 'scripts/railway-cron.js', 'scripts/railway-cron.js')
+            emit({ type: 'block_done', id: 'cron' })
+          },
+
+          'auth-google': () => {
+            emit({ type: 'block_start', id: 'auth-google', name: 'Google OAuth', icon: '🔑' })
+            copyBlockFile('auth-google', 'components/GoogleAuthButton.jsx', 'components/GoogleAuthButton.jsx')
+            copyBlockFile('auth-google', 'app/api/auth/callback/route.js', 'app/api/auth/callback/route.js')
+            // Patch login page to include Google button if auth-email also selected
+            const loginPath = path.join(appDir, 'app/login/page.js')
+            if (fs.existsSync(loginPath)) {
+              let login = fs.readFileSync(loginPath, 'utf8')
+              if (!login.includes('GoogleAuthButton')) {
+                login = login.replace(
+                  `import { createClient } from '@/lib/supabase-browser'`,
+                  `import { createClient } from '@/lib/supabase-browser'\nimport GoogleAuthButton from '@/components/GoogleAuthButton'`
+                ).replace(
+                  `</p>\n      </div>\n    </div>\n  )\n}`,
+                  `</p>\n          <div className="relative my-4"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"/></div><div className="relative flex justify-center text-xs"><span className="px-2 bg-white text-gray-400">or</span></div></div>\n          <GoogleAuthButton />\n      </div>\n    </div>\n  )\n}`
+                )
+                fs.writeFileSync(loginPath, login, 'utf8')
+                emit({ type: 'file_write', path: 'app/login/page.js', preview: '(patched: added Google OAuth button)' })
+              }
+            }
+            emit({ type: 'block_done', id: 'auth-google' })
+          },
+
+          'charts': () => {
+            emit({ type: 'block_start', id: 'charts', name: 'Charts & Stats', icon: '📊' })
+            copyBlockFile('charts', 'components/StatsCard.jsx', 'components/StatsCard.jsx')
+            copyBlockFile('charts', 'components/LineChart.jsx', 'components/LineChart.jsx')
+            copyBlockFile('charts', 'components/BarChart.jsx', 'components/BarChart.jsx')
+            // Smart: patch package.json to add chart.js
+            const pkgPath = path.join(appDir, 'package.json')
+            if (fs.existsSync(pkgPath)) {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+              pkg.dependencies['chart.js'] = '^4.4.0'
+              fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf8')
+              emit({ type: 'file_write', path: 'package.json', preview: '(patched: added chart.js)' })
+            }
+            // Smart: patch dashboard overview page to show stats cards per entity
+            const overviewPath = path.join(appDir, 'app/dashboard/page.js')
+            if (fs.existsSync(overviewPath)) {
+              const statsImport = `import StatsCard from '@/components/StatsCard'\n`
+              const statsCards = config.entities.map((e, i) => {
+                const colors = ['#6366f1','#0ea5e9','#22c55e','#f59e0b','#ef4444']
+                return `        <StatsCard label="${e.label}" value="—" trend="0" trendLabel="vs last month" icon="${['📋','👥','💰','📦','🎯'][i % 5]}" color="${colors[i % colors.length]}" />`
+              }).join('\n')
+              let overview = fs.readFileSync(overviewPath, 'utf8')
+              if (!overview.includes('StatsCard')) {
+                overview = statsImport + overview.replace(
+                  `<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">`,
+                  `<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">\n${statsCards}`
+                )
+                fs.writeFileSync(overviewPath, overview, 'utf8')
+                emit({ type: 'file_write', path: 'app/dashboard/page.js', preview: '(patched: added StatsCards)' })
+              }
+            }
+            emit({ type: 'block_done', id: 'charts' })
+          },
+
+          'notifications': () => {
+            emit({ type: 'block_start', id: 'notifications', name: 'Notifications', icon: '🔔' })
+            copyBlockFile('notifications', 'components/Toast.jsx', 'components/Toast.jsx')
+            copyBlockFile('notifications', 'components/NotificationBell.jsx', 'components/NotificationBell.jsx')
+            // Patch root layout to wrap with ToastProvider
+            const layoutPath = path.join(appDir, 'app/layout.js')
+            if (fs.existsSync(layoutPath)) {
+              let layout = fs.readFileSync(layoutPath, 'utf8')
+              if (!layout.includes('ToastProvider')) {
+                layout = `import ToastProvider from '@/components/Toast'\n` + layout
+                  .replace('<body', `<body`)
+                  .replace('>{children}</body>', `><ToastProvider>{children}</ToastProvider></body>`)
+                fs.writeFileSync(layoutPath, layout, 'utf8')
+                emit({ type: 'file_write', path: 'app/layout.js', preview: '(patched: wrapped with ToastProvider)' })
+              }
+            }
+            emit({ type: 'block_done', id: 'notifications' })
+          },
+
+          'kanban': () => {
+            emit({ type: 'block_start', id: 'kanban', name: 'Kanban Board', icon: '🗂️' })
+            copyBlockFile('kanban', 'components/KanbanBoard.jsx', 'components/KanbanBoard.jsx')
+            // Smart: generate a kanban page for the first entity that has statusValues
+            const entityWithStatus = config.entities.find(e => e.statusValues?.length > 1)
+            if (entityWithStatus) {
+              const colors = ['#6366f1','#f59e0b','#22c55e','#ef4444','#8b5cf6']
+              const cols = entityWithStatus.statusValues.map((s, i) => `  { id: '${s}', label: '${s.charAt(0).toUpperCase() + s.slice(1)}', color: '${colors[i % colors.length]}' }`).join(',\n')
+              writeFile(`app/dashboard/${entityWithStatus.plural}/kanban/page.js`, `'use client'\nimport { useState, useEffect } from 'react'\nimport KanbanBoard from '@/components/KanbanBoard'\n\nconst COLUMNS = [\n${cols}\n]\n\nexport default function ${entityWithStatus.label}KanbanPage() {\n  const [cards, setCards] = useState([])\n\n  useEffect(() => {\n    fetch('/api/${entityWithStatus.plural}').then(r=>r.json()).then(data => {\n      if (Array.isArray(data)) setCards(data.map(d => ({ id: d.id, columnId: d.status || COLUMNS[0].id, title: d.${entityWithStatus.fields[1] || 'name'} || d.id, description: '' })))\n    })\n  }, [])\n\n  async function handleMove(cardId, newColumnId) {\n    setCards(prev => prev.map(c => c.id === cardId ? { ...c, columnId: newColumnId } : c))\n    await fetch('/api/${entityWithStatus.plural}', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: cardId, status: newColumnId }) })\n  }\n\n  return (\n    <div>\n      <h1 className="text-2xl font-bold text-gray-900 mb-6">${entityWithStatus.label} — Kanban</h1>\n      <KanbanBoard columns={COLUMNS} cards={cards} onMove={handleMove} />\n    </div>\n  )\n}\n`)
+            }
+            emit({ type: 'block_done', id: 'kanban' })
+          },
+
+          'settings-page': () => {
+            emit({ type: 'block_start', id: 'settings-page', name: 'Settings', icon: '⚙️' })
+            copyBlockFile('settings-page', 'app/dashboard/settings/page.js', 'app/dashboard/settings/page.js')
+            emit({ type: 'block_done', id: 'settings-page' })
+          },
+
+        } // end ASSEMBLERS
+
+        // ── Step 2: Run selected block assemblers in order ─────────────────
+        const ordered = ['next-shell', 'supabase', 'auth-email', 'auth-google', 'dashboard-layout', 'crud-table', 'crud-api', 'charts', 'notifications', 'kanban', 'settings-page', 'ai-chat', 'landing', 'stripe', 'email-resend', 'file-upload', 'cron']
         for (const blockId of ordered) {
           if (blocks.includes(blockId) && ASSEMBLERS[blockId]) {
             await ASSEMBLERS[blockId]()
@@ -885,6 +998,105 @@ Return this exact JSON structure (fill in all values for this specific app):
 
       if (!res.writableEnded) res.end()
     })
+    return
+  }
+
+  // POST /forge/preview — start next dev for a scaffolded app, return port
+  // Body: { workspaceId, appSlug }
+  if (req.method === 'POST' && url.pathname === '/forge/preview') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const { workspaceId, appSlug } = JSON.parse(body)
+        const appDir = path.join(WORK_DIR, workspaceId, appSlug)
+        if (!fs.existsSync(appDir)) {
+          res.writeHead(404, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: `App not found at ${appDir}` }))
+          return
+        }
+
+        // Kill existing preview for this workspace
+        if (forgePreviews.has(workspaceId)) {
+          const old = forgePreviews.get(workspaceId)
+          old.process?.kill()
+          forgePreviews.delete(workspaceId)
+        }
+
+        const port = getFreePreviewPort()
+        const child = spawn('npx', ['next', 'dev', '--port', String(port)], {
+          cwd: appDir,
+          env: { ...process.env, HOME, PORT: String(port), NODE_ENV: 'development' },
+          detached: false,
+        })
+
+        forgePreviews.set(workspaceId, { process: child, port, appDir, startedAt: Date.now() })
+        console.log(`[forge-preview] started ${appSlug} on :${port} (ws: ${workspaceId})`)
+
+        // Wait up to 20s for "Ready" signal
+        await new Promise(resolve => {
+          const timer = setTimeout(resolve, 20000)
+          child.stdout.on('data', d => {
+            if (d.toString().includes('Ready') || d.toString().includes('ready')) {
+              clearTimeout(timer); resolve()
+            }
+          })
+          child.stderr.on('data', d => {
+            if (d.toString().includes('Ready') || d.toString().includes('ready')) {
+              clearTimeout(timer); resolve()
+            }
+          })
+          child.on('close', () => { clearTimeout(timer); resolve() })
+        })
+
+        const proxyUrl = `/forge/proxy/${workspaceId}`
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, port, proxyUrl }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+    })
+    return
+  }
+
+  // GET/POST /forge/proxy/:workspaceId/* — HTTP proxy to running preview
+  if (url.pathname.startsWith('/forge/proxy/')) {
+    const parts = url.pathname.split('/')
+    const wsId = parts[3]
+    const rest = '/' + parts.slice(4).join('/') + (url.search || '')
+    const preview = forgePreviews.get(wsId)
+    if (!preview) {
+      res.writeHead(404, { 'Content-Type': 'text/html' })
+      res.end('<html><body style="font-family:sans-serif;padding:40px;background:#050d1a;color:#64748b"><h2>Preview not running</h2><p>Start the preview first from the Forge page.</p></body></html>')
+      return
+    }
+    const proxyReq = http.request({
+      hostname: 'localhost',
+      port: preview.port,
+      path: rest || '/',
+      method: req.method,
+      headers: { ...req.headers, host: `localhost:${preview.port}` },
+    }, proxyRes => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers)
+      proxyRes.pipe(res)
+    })
+    proxyReq.on('error', () => {
+      if (!res.writableEnded) { res.writeHead(502); res.end('Preview server error') }
+    })
+    req.pipe(proxyReq)
+    return
+  }
+
+  // DELETE /forge/preview/:workspaceId — stop preview
+  if (req.method === 'DELETE' && url.pathname.startsWith('/forge/preview/')) {
+    const wsId = url.pathname.split('/')[3]
+    if (forgePreviews.has(wsId)) {
+      forgePreviews.get(wsId).process?.kill()
+      forgePreviews.delete(wsId)
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true }))
     return
   }
 
