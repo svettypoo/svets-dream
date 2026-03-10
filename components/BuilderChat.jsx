@@ -542,7 +542,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
                 placeholder={currentOrg ? 'Talk to your CTO...' : 'What do you want to build?'}
-                rows={3}
+                rows={2}
                 style={{
                   flex: 1, padding: '10px 12px', borderRadius: 10,
                   border: '1px solid #1e3a5f', outline: 'none', fontSize: 13,

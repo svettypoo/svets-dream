@@ -217,21 +217,22 @@ export default function BuilderPreview({ visible, workspaceId }) {
         background: 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
       }}>
         <div style={{
-          width: 7, height: 7, borderRadius: '50%', background: '#4ade80',
-          boxShadow: '0 0 7px #4ade80', animation: 'blink 2s ease-in-out infinite',
+          width: 6, height: 6, borderRadius: '50%', background: '#4ade80',
+          boxShadow: '0 0 6px #4ade80', animation: 'blink 2s ease-in-out infinite',
         }} />
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: '#475569', textTransform: 'uppercase' }}>
-          Build Preview
-        </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
-          {['terminal', 'files', 'preview'].map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              padding: '3px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+        <div style={{ display: 'flex', gap: 2, flex: 1 }}>
+          {[
+            { id: 'terminal', label: 'Terminal', icon: '▶' },
+            { id: 'files', label: 'Files', icon: '📁' },
+            { id: 'preview', label: 'Preview', icon: '🌐' },
+          ].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
               fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-              background: tab === t ? '#6366f1' : 'transparent',
-              color: tab === t ? '#fff' : '#475569',
+              background: tab === t.id ? '#6366f1' : 'transparent',
+              color: tab === t.id ? '#fff' : '#475569',
             }}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t.label}
             </button>
           ))}
         </div>
