@@ -23,7 +23,7 @@ export default function WorkflowsPanel() {
   const [workflows, setWorkflows] = useState([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState({ name: '', task: '', interval_minutes: 60, description: '' })
+  const [form, setForm] = useState({ name: '', task: '', interval_minutes: 60, description: '', notify_email: '', cron_expr: '' })
   const [showForm, setShowForm] = useState(false)
 
   const fetchWorkflows = useCallback(async () => {
@@ -68,10 +68,13 @@ export default function WorkflowsPanel() {
     if (!form.name || !form.task) return
     setCreating(true)
     try {
+      const payload = { ...form }
+      if (!payload.cron_expr) delete payload.cron_expr
+      if (!payload.notify_email) delete payload.notify_email
       const res = await fetch('/api/workflows', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       })
       if (res.ok) {
         setForm({ name: '', task: '', interval_minutes: 60, description: '' })
@@ -135,23 +138,34 @@ export default function WorkflowsPanel() {
               onChange={e => setForm(p => ({ ...p, interval_minutes: parseInt(e.target.value) }))}
               style={{ flex: 1, background: '#0a1628', border: '1px solid #1e293b', borderRadius: 6, padding: '5px 8px', color: '#e2e8f0', fontSize: 11 }}
             >
-              <option value={5}>Every 5 minutes</option>
-              <option value={15}>Every 15 minutes</option>
-              <option value={30}>Every 30 minutes</option>
+              <option value={5}>Every 5 min</option>
+              <option value={15}>Every 15 min</option>
+              <option value={30}>Every 30 min</option>
               <option value={60}>Every hour</option>
               <option value={360}>Every 6 hours</option>
               <option value={720}>Every 12 hours</option>
               <option value={1440}>Daily</option>
               <option value={10080}>Weekly</option>
             </select>
-            <button type="submit" disabled={creating || !form.name || !form.task} style={{
-              background: 'rgba(99,102,241,0.3)', border: '1px solid #6366f1',
-              color: '#c4b5fd', fontSize: 11, padding: '5px 12px', borderRadius: 6,
-              cursor: creating ? 'default' : 'pointer', fontFamily: 'inherit',
-            }}>
-              {creating ? '…' : 'Save'}
-            </button>
           </div>
+          <input
+            placeholder="Cron expr (optional, e.g. 0 9 * * 1 = Mon 9am)"
+            value={form.cron_expr} onChange={e => setForm(p => ({ ...p, cron_expr: e.target.value }))}
+            style={{ background: '#0a1628', border: '1px solid #1e293b', borderRadius: 6, padding: '5px 8px', color: '#e2e8f0', fontSize: 10, fontFamily: 'monospace' }}
+          />
+          <input
+            placeholder="Notify email (results sent here after each run)"
+            value={form.notify_email} onChange={e => setForm(p => ({ ...p, notify_email: e.target.value }))}
+            type="email"
+            style={{ background: '#0a1628', border: '1px solid #1e293b', borderRadius: 6, padding: '5px 8px', color: '#e2e8f0', fontSize: 11 }}
+          />
+          <button type="submit" disabled={creating || !form.name || !form.task} style={{
+            background: 'rgba(99,102,241,0.3)', border: '1px solid #6366f1',
+            color: '#c4b5fd', fontSize: 11, padding: '5px 12px', borderRadius: 6,
+            cursor: creating ? 'default' : 'pointer', fontFamily: 'inherit',
+          }}>
+            {creating ? '…' : 'Save workflow'}
+          </button>
         </form>
       )}
 
@@ -198,24 +212,41 @@ function WorkflowCard({ wf, onToggle, onDelete }) {
           <div style={{ fontSize: 10, color: '#475569', lineHeight: 1.5 }}>
             {wf.task.slice(0, 90)}{wf.task.length > 90 ? '…' : ''}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 5, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 5, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{
               fontSize: 9, fontWeight: 700,
               color: wf.active ? '#818cf8' : '#334155',
               background: wf.active ? 'rgba(99,102,241,0.12)' : '#0f172a',
               padding: '1px 6px', borderRadius: 4,
-            }}>{formatInterval(wf.interval_minutes)}</span>
+            }}>{wf.cron_expr || formatInterval(wf.interval_minutes)}</span>
             {wf.active && (
               <span style={{ fontSize: 9, color: '#475569' }}>
                 next {timeUntil(wf.next_run)}
               </span>
             )}
             {wf.run_count > 0 && (
-              <span style={{ fontSize: 9, color: '#334155' }}>
-                ran {wf.run_count}×
-              </span>
+              <span style={{ fontSize: 9, color: '#334155' }}>ran {wf.run_count}×</span>
+            )}
+            {wf.notify_email && (
+              <span style={{ fontSize: 9, color: '#22c55e' }} title={`Results → ${wf.notify_email}`}>✉ email</span>
+            )}
+            {wf.notify_phone && (
+              <span style={{ fontSize: 9, color: '#22c55e' }} title={`Results → ${wf.notify_phone}`}>📱 sms</span>
+            )}
+            {wf.notify_slack && (
+              <span style={{ fontSize: 9, color: '#22c55e' }} title="Results → Slack">💬 slack</span>
             )}
           </div>
+          {wf.last_output && (
+            <div style={{
+              marginTop: 6, fontSize: 9.5, color: '#475569',
+              background: '#060f1a', borderRadius: 5, padding: '5px 7px',
+              lineHeight: 1.5, maxHeight: 60, overflowY: 'auto',
+              borderLeft: '2px solid #1e293b',
+            }}>
+              {wf.last_output.slice(0, 200)}{wf.last_output.length > 200 ? '…' : ''}
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
           <button onClick={() => onToggle(wf)} title={wf.active ? 'Pause' : 'Resume'} style={{

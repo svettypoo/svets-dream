@@ -707,21 +707,97 @@ export async function POST(req) {
   // ── Workflow scheduling tool (OpenClaw cron) ──────────────────────────────
   const scheduleTaskTool = {
     name: 'schedule_task',
-    description: `Schedule a recurring task to run automatically on a fixed interval. Use when the user wants something to happen repeatedly — e.g. "remind me every morning to review my tasks", "check the server health every hour", "send me a weekly summary every Monday". The scheduled task will fire automatically without the user needing to be present.`,
+    description: `Schedule a recurring task to run automatically. Supports both interval-based ("every N minutes") and time-based cron expressions ("every Monday at 9am"). Use when the user wants something to happen repeatedly without them being present.
+
+Examples:
+- "remind me every morning at 9am" → cron_expr: "0 9 * * *", interval_minutes: 1440
+- "check server every hour" → interval_minutes: 60
+- "weekly summary every Monday at 8am" → cron_expr: "0 8 * * 1", interval_minutes: 10080
+- "notify me at 6pm daily" → cron_expr: "0 18 * * *", interval_minutes: 1440
+
+Always set notify_email or notify_phone so the output actually reaches the user.`,
     input_schema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Short name for the workflow (e.g. "Morning task review", "Hourly health check")' },
-        task: { type: 'string', description: 'The exact task instruction to run on schedule (e.g. "Review all open tasks and send a status summary")' },
-        interval_minutes: { type: 'integer', minimum: 5, description: 'How often to run in minutes (e.g. 60 = hourly, 1440 = daily, 10080 = weekly)' },
-        description: { type: 'string', description: 'Optional human-readable explanation of what this workflow does' },
+        name: { type: 'string', description: 'Short name for the workflow (e.g. "Morning task review")' },
+        task: { type: 'string', description: 'The exact task instruction to run on schedule' },
+        interval_minutes: { type: 'integer', minimum: 5, description: 'Fallback interval in minutes (60=hourly, 1440=daily, 10080=weekly)' },
+        cron_expr: { type: 'string', description: 'Standard 5-field cron expression for time-based scheduling (e.g. "0 9 * * 1" = Monday 9am, "0 18 * * *" = daily 6pm)' },
+        notify_email: { type: 'string', description: 'Email address to send the output to after each run' },
+        notify_phone: { type: 'string', description: 'Phone number (E.164) to SMS the output to after each run' },
+        notify_slack: { type: 'string', description: 'Slack webhook URL to post the output to after each run' },
+        description: { type: 'string', description: 'Human-readable explanation of what this workflow does' },
       },
       required: ['name', 'task', 'interval_minutes'],
     },
   }
 
+  // ── Slack notification tool ────────────────────────────────────────────────
+  const slackNotifyTool = {
+    name: 'slack_notify',
+    description: 'Post a message to a Slack channel via webhook URL. Use to notify a team about deployments, task completions, errors, or any event. The webhook URL is provided by the user or stored in memory.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        webhook_url: { type: 'string', description: 'Slack incoming webhook URL (e.g. https://hooks.slack.com/services/...)' },
+        text: { type: 'string', description: 'Message text (supports Slack markdown: *bold*, _italic_, `code`, ```block```)' },
+        username: { type: 'string', description: 'Display name for the bot (default: Svet\'s Dream)' },
+        icon_emoji: { type: 'string', description: 'Emoji icon (e.g. ":robot_face:", ":white_check_mark:")' },
+      },
+      required: ['webhook_url', 'text'],
+    },
+  }
+
+  // ── GitHub integration tool ────────────────────────────────────────────────
+  const githubTool = {
+    name: 'github_api',
+    description: `Call the GitHub REST API. Use for: creating issues, PRs, comments; reading repo contents; searching code; checking CI status; listing branches/commits. Requires a GitHub token stored in memory (key: "github_token") or provided directly.
+
+Common operations:
+- List issues: GET /repos/{owner}/{repo}/issues
+- Create issue: POST /repos/{owner}/{repo}/issues  body: {title, body, labels}
+- Create PR: POST /repos/{owner}/{repo}/pulls  body: {title, body, head, base}
+- Get file: GET /repos/{owner}/{repo}/contents/{path}
+- Search code: GET /search/code?q={query}+repo:{owner}/{repo}
+- List commits: GET /repos/{owner}/{repo}/commits`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        method: { type: 'string', enum: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], description: 'HTTP method' },
+        path: { type: 'string', description: 'GitHub API path (e.g. /repos/owner/repo/issues)' },
+        body: { type: 'object', description: 'Request body for POST/PATCH/PUT' },
+        token: { type: 'string', description: 'GitHub personal access token (if not stored in memory as "github_token")' },
+      },
+      required: ['method', 'path'],
+    },
+  }
+
+  // ── Notion integration tool ────────────────────────────────────────────────
+  const notionTool = {
+    name: 'notion_api',
+    description: `Call the Notion API to read and write pages, databases, and blocks. Requires a Notion integration token stored in memory (key: "notion_token") or provided directly.
+
+Common operations:
+- Search pages: POST /search  body: {query}
+- Read page: GET /pages/{page_id}
+- Read blocks: GET /blocks/{block_id}/children
+- Append blocks: PATCH /blocks/{page_id}/children  body: {children: [...blocks]}
+- Query database: POST /databases/{database_id}/query
+- Create page: POST /pages  body: {parent, properties, children}`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        method: { type: 'string', enum: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'], description: 'HTTP method' },
+        path: { type: 'string', description: 'Notion API path (e.g. /pages/{id}, /databases/{id}/query)' },
+        body: { type: 'object', description: 'Request body' },
+        token: { type: 'string', description: 'Notion integration token (if not stored in memory as "notion_token")' },
+      },
+      required: ['method', 'path'],
+    },
+  }
+
   const baseTools = isTopAgent ? managerTools : implementerTools
-  const tools = [...baseTools, taskWriteTool, taskListTool, taskUpdateTool, scheduleTaskTool, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, searchMemoryTool, blackboardReadTool, blackboardWriteTool, requestApprovalTool, structuredOutputTool, ...skillTools]
+  const tools = [...baseTools, taskWriteTool, taskListTool, taskUpdateTool, scheduleTaskTool, slackNotifyTool, githubTool, notionTool, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, searchMemoryTool, blackboardReadTool, blackboardWriteTool, requestApprovalTool, structuredOutputTool, ...skillTools]
 
   // ── System prompt ─────────────────────────────────────────────────────────
   const globalRules = rules
@@ -1597,26 +1673,138 @@ Every agent MUST post a brief message at the start and end of work so the user s
     } else if (name === 'schedule_task') {
       try {
         const svc = createServiceClient()
-        const nextRun = new Date(Date.now() + input.interval_minutes * 60 * 1000).toISOString()
+        // Compute next_run: prefer cron_expr for time-based, else interval
+        let nextRun = new Date(Date.now() + input.interval_minutes * 60 * 1000).toISOString()
+        if (input.cron_expr) {
+          // Simple cron next-run calculator (handles daily, weekly, hourly-at-minute)
+          try {
+            const [min, hour, , , dow] = input.cron_expr.split(' ')
+            const now = new Date(); const next = new Date(now); next.setSeconds(0, 0)
+            if (min !== '*' && hour !== '*' && (dow === '*' || dow === undefined)) {
+              next.setHours(parseInt(hour), parseInt(min), 0, 0)
+              if (next <= now) next.setDate(next.getDate() + 1)
+              nextRun = next.toISOString()
+            } else if (min !== '*' && hour !== '*' && dow !== '*') {
+              const targetDow = parseInt(dow); const currentDow = now.getDay()
+              let daysUntil = (targetDow - currentDow + 7) % 7
+              if (daysUntil === 0) { const t2 = new Date(now); t2.setHours(parseInt(hour), parseInt(min), 0, 0); if (t2 <= now) daysUntil = 7 }
+              next.setDate(next.getDate() + daysUntil); next.setHours(parseInt(hour), parseInt(min), 0, 0)
+              nextRun = next.toISOString()
+            } else if (min !== '*' && hour === '*') {
+              next.setMinutes(parseInt(min), 0, 0)
+              if (next <= now) next.setHours(next.getHours() + 1)
+              nextRun = next.toISOString()
+            }
+          } catch {}
+        }
         const { data } = await svc.from('agent_workflows').insert({
           name: input.name,
           description: input.description || null,
           task: input.task,
           interval_minutes: input.interval_minutes,
+          cron_expr: input.cron_expr || null,
+          notify_email: input.notify_email || null,
+          notify_phone: input.notify_phone || null,
+          notify_slack: input.notify_slack || null,
           workspace_id: workspaceId || 'global',
           next_run: nextRun,
           active: true,
         }).select().maybeSingle()
-        const freq = input.interval_minutes >= 1440
-          ? `every ${input.interval_minutes / 1440} day(s)`
-          : input.interval_minutes >= 60
-          ? `every ${input.interval_minutes / 60} hour(s)`
-          : `every ${input.interval_minutes} min`
-        send(`\n\n⏰ **Workflow scheduled:** "${input.name}" — runs ${freq}`)
+        const freq = input.cron_expr || (
+          input.interval_minutes >= 1440 ? `every ${input.interval_minutes / 1440}d`
+          : input.interval_minutes >= 60 ? `every ${input.interval_minutes / 60}h`
+          : `every ${input.interval_minutes}m`
+        )
+        const notifNote = input.notify_email ? ` → results to ${input.notify_email}` : input.notify_phone ? ` → SMS ${input.notify_phone}` : ''
+        send(`\n\n⏰ **Workflow scheduled:** "${input.name}" — ${freq}${notifNote}`)
         send(`\n\n<!--WORKFLOW_CREATED:${JSON.stringify({ id: data?.id, name: input.name, interval_minutes: input.interval_minutes, next_run: nextRun })}-->`)
-        return `Workflow "${input.name}" scheduled (${freq}). First run at ${nextRun}.`
+        return `Workflow "${input.name}" scheduled (${freq}). First run at ${nextRun}.${notifNote}`
       } catch (err) {
         return `schedule_task error: ${err.message}`
+      }
+
+    } else if (name === 'slack_notify') {
+      try {
+        const payload = {
+          text: input.text,
+          username: input.username || "Svet's Dream",
+          icon_emoji: input.icon_emoji || ':robot_face:',
+        }
+        const res = await fetch(input.webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        const body = await res.text()
+        if (!res.ok) return `Slack error ${res.status}: ${body}`
+        send(`\n\n💬 **Slack:** Message sent`)
+        return 'Message sent to Slack.'
+      } catch (err) {
+        return `slack_notify error: ${err.message}`
+      }
+
+    } else if (name === 'github_api') {
+      try {
+        // Get token from input, or fall back to memory
+        let token = input.token
+        if (!token) {
+          const svc = createServiceClient()
+          const { data: mem } = await svc.from('agent_memories')
+            .select('content').eq('user_id', userId).ilike('content', '%github_token%').maybeSingle()
+          if (mem?.content) {
+            const m = mem.content.match(/github_token[:\s]+([A-Za-z0-9_]+)/)
+            if (m) token = m[1]
+          }
+        }
+        if (!token) return 'GitHub token not found. Ask the user to provide their GitHub personal access token, then store it with remember() as "github_token: ghp_..."'
+
+        const res = await fetch(`https://api.github.com${input.path}`, {
+          method: input.method,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json',
+          },
+          body: input.body ? JSON.stringify(input.body) : undefined,
+        })
+        const data = await res.json()
+        if (!res.ok) return `GitHub API error ${res.status}: ${JSON.stringify(data).slice(0, 300)}`
+        send(`\n\n🐙 **GitHub:** ${input.method} ${input.path} → ${res.status}`)
+        return JSON.stringify(data).slice(0, 4000)
+      } catch (err) {
+        return `github_api error: ${err.message}`
+      }
+
+    } else if (name === 'notion_api') {
+      try {
+        let token = input.token
+        if (!token) {
+          const svc = createServiceClient()
+          const { data: mem } = await svc.from('agent_memories')
+            .select('content').eq('user_id', userId).ilike('content', '%notion_token%').maybeSingle()
+          if (mem?.content) {
+            const m = mem.content.match(/notion_token[:\s]+(secret_[A-Za-z0-9]+)/)
+            if (m) token = m[1]
+          }
+        }
+        if (!token) return 'Notion token not found. Ask the user to share their Notion integration token, then store it with remember() as "notion_token: secret_..."'
+
+        const res = await fetch(`https://api.notion.com/v1${input.path}`, {
+          method: input.method,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Notion-Version': '2022-06-28',
+            'Content-Type': 'application/json',
+          },
+          body: input.body ? JSON.stringify(input.body) : undefined,
+        })
+        const data = await res.json()
+        if (!res.ok) return `Notion API error ${res.status}: ${JSON.stringify(data).slice(0, 300)}`
+        send(`\n\n📓 **Notion:** ${input.method} ${input.path} → ${res.status}`)
+        return JSON.stringify(data).slice(0, 4000)
+      } catch (err) {
+        return `notion_api error: ${err.message}`
       }
 
     } else if (skillTools.some(t => t.name === name)) {
