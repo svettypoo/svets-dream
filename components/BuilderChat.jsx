@@ -412,7 +412,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   }
 
   return (
-    <div style={{ width: 620, minWidth: 440, display: 'flex', flexDirection: 'column', background: '#0d1829', borderRight: '1px solid #1e3a5f', height: '100%' }}>
+    <div style={{ width: 480, minWidth: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#0d1829', borderRight: '1px solid #1e3a5f', height: '100%' }}>
       {/* Header */}
       <div style={{ padding: '14px 20px 0', borderBottom: '1px solid #1e3a5f', background: 'rgba(99,102,241,0.12)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>

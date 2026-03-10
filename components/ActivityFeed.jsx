@@ -117,7 +117,7 @@ export default function ActivityFeed() {
 
   return (
     <div style={{
-      width: 260,
+      width: 220,
       flexShrink: 0,
       background: 'linear-gradient(180deg, #050d1a 0%, #0a0a1a 60%, #080810 100%)',
       borderLeft: '1px solid #1e293b',

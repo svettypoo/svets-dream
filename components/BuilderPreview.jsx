@@ -190,7 +190,7 @@ export default function BuilderPreview({ visible, workspaceId }) {
 
   return (
     <div style={{
-      width: 460,
+      width: 400,
       flexShrink: 0,
       background: '#060d1b',
       borderLeft: '1px solid #1e3a5f',
