@@ -246,9 +246,10 @@ export default function BuilderPreview({ visible, workspaceId }) {
         }}>
           <style>{`div::-webkit-scrollbar{display:none}`}</style>
           {entries.length === 0 && (
-            <div style={{ color: '#334155', marginTop: 32, textAlign: 'center', fontSize: 12, lineHeight: 1.7 }}>
-              <div style={{ fontSize: 20, opacity: 0.3, marginBottom: 8 }}>⬡</div>
-              Waiting for agent to start building...
+            <div style={{ color: '#3d5473', marginTop: 40, textAlign: 'center', fontSize: 12, lineHeight: 1.8, padding: '0 20px' }}>
+              <div style={{ fontSize: 28, opacity: 0.4, marginBottom: 12 }}>⬡</div>
+              <div style={{ color: '#475569', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>No build running</div>
+              <div style={{ color: '#334155' }}>Terminal output will appear here once an agent starts executing commands.</div>
             </div>
           )}
           {entries.map(e => {
@@ -428,9 +429,10 @@ export default function BuilderPreview({ visible, workspaceId }) {
               title="Build Preview"
             />
           ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#334155', fontSize: 12, gap: 8 }}>
-              <div style={{ fontSize: 24, opacity: 0.3 }}>⬡</div>
-              Enter a URL or wait for an agent to generate a site
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#3d5473', fontSize: 12, gap: 8, padding: '0 24px', textAlign: 'center' }}>
+              <div style={{ fontSize: 28, opacity: 0.35, marginBottom: 4 }}>🌐</div>
+              <div style={{ color: '#475569', fontWeight: 600, fontSize: 13 }}>No preview yet</div>
+              <div style={{ color: '#334155', lineHeight: 1.6 }}>Enter a URL above or wait for an agent to deploy a site — it will open here automatically.</div>
             </div>
           )}
         </div>

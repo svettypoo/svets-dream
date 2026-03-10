@@ -414,23 +414,25 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   return (
     <div style={{ width: 480, minWidth: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#0d1829', borderRight: '1px solid #1e3a5f', height: '100%' }}>
       {/* Header */}
-      <div style={{ padding: '14px 20px 0', borderBottom: '1px solid #1e3a5f', background: 'rgba(99,102,241,0.12)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <div style={{ color: '#a78bfa', fontWeight: 800, fontSize: 17, letterSpacing: '-0.3px' }}>{"Svet's Dream"}</div>
+      <div style={{ padding: '8px 16px 0', borderBottom: '1px solid #1e3a5f', background: 'rgba(99,102,241,0.08)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <div style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12, letterSpacing: '0.05em' }}>
+            {currentOrg ? 'ACTIVE BUILD' : 'CTO WORKSPACE'}
+          </div>
           {currentOrg && (
-            <div style={{ fontSize: 10, color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
-              {currentOrg.nodes?.filter(n => n.id !== 'rules').length} agents live
+            <div style={{ fontSize: 10, color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+              {currentOrg.nodes?.filter(n => n.id !== 'rules').length} agents
             </div>
           )}
         </div>
         <div style={{ display: 'flex', gap: 0 }}>
-          {[['builder', 'CTO Chat'], ['history', 'Agent History']].map(([id, label]) => (
+          {[['builder', 'CTO Chat'], ['history', 'History']].map(([id, label]) => (
             <button key={id} onClick={() => setView(id)} style={{
-              padding: '6px 14px', border: 'none', cursor: 'pointer',
+              padding: '5px 12px', border: 'none', cursor: 'pointer',
               background: 'transparent', fontSize: 11, fontWeight: 600,
-              color: view === id ? '#a78bfa' : '#475569',
+              color: view === id ? '#c4b5fd' : '#475569',
               borderBottom: view === id ? '2px solid #6366f1' : '2px solid transparent',
-              transition: 'all 0.15s', letterSpacing: '0.02em',
+              transition: 'all 0.15s',
             }}>{label}</button>
           ))}
         </div>
@@ -483,25 +485,28 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             ))}
             {/* Example prompts — shown only on initial state */}
             {messages.length === 1 && !loading && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-                <div style={{ fontSize: 10, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, paddingLeft: 2 }}>Try an example</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 16 }}>
+                <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, paddingLeft: 2, marginBottom: 2 }}>Try an example</div>
                 {[
-                  '🛒 Build a SaaS landing page with pricing',
-                  '📊 Create a realtime dashboard app',
-                  '🤖 Build a customer support chatbot',
-                  '📱 Make a mobile-first todo app',
-                ].map((prompt, i) => (
+                  { icon: '🛒', text: 'Build a SaaS landing page with pricing tiers and a waitlist' },
+                  { icon: '📊', text: 'Create a realtime analytics dashboard with charts' },
+                  { icon: '🤖', text: 'Build a customer support chatbot with knowledge base' },
+                  { icon: '📱', text: 'Make a mobile-first todo app with drag-and-drop' },
+                ].map((p, i) => (
                   <button
                     key={i}
                     className="prompt-chip"
-                    onClick={() => { setInput(prompt.slice(2).trim()); }}
+                    onClick={() => { setInput(p.text); }}
                     style={{
-                      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 8, padding: '8px 12px', color: '#64748b',
+                      background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)',
+                      borderRadius: 8, padding: '9px 12px', color: '#64748b',
                       fontSize: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
-                      fontFamily: 'inherit', lineHeight: 1.4,
+                      fontFamily: 'inherit', lineHeight: 1.4, display: 'flex', alignItems: 'flex-start', gap: 8,
                     }}
-                  >{prompt}</button>
+                  >
+                    <span style={{ fontSize: 14, flexShrink: 0, marginTop: -1 }}>{p.icon}</span>
+                    <span>{p.text}</span>
+                  </button>
                 ))}
               </div>
             )}
