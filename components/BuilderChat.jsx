@@ -203,6 +203,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [queued, setQueued] = useState([])
+  const [pendingApproval, setPendingApproval] = useState(null) // { id, question, options, context }
   const [currentOrg, setCurrentOrg] = useState(null)
   const [thinkingLabel, setThinkingLabel] = useState('Thinking...')
   const [quickMode, setQuickMode] = useState(false)
@@ -284,6 +285,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   }
 
   async function sendText(text, img = null) {
+    setPendingApproval(null) // clear any pending approval when user sends a message
     // Build content: multimodal if image attached, plain string otherwise
     const userContent = img
       ? [
@@ -333,6 +335,9 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             .replace(/<!--PREVIEW_HTML:[A-Za-z0-9+/=]*-->/g, '')
             .replace(/<!--FILE_ENTRY:\{[^>]*\}-->/g, '')
             .replace(/<!--PREVIEW_URL:[^>]*-->/g, '')
+            .replace(/<!--APPROVAL_REQUEST:[^>]*-->/g, '')
+            .replace(/<!--STRUCTURED_OUTPUT:[^>]*-->/g, '')
+            .replace(/<!--TOKEN_USAGE:\d+-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
           // Fire preview events
           const fileMatches = [...assistantText.matchAll(/<!--FILE_ENTRY:(\{[^>]+\})-->/g)]
@@ -421,12 +426,20 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
               if (url) window.dispatchEvent(new CustomEvent('builderUpdate', { detail: { type: 'url', data: { url } } }))
             }
           }
+          // Parse APPROVAL_REQUEST marker — show decision UI when stream ends
+          const approvalMatch = assistantText.match(/<!--APPROVAL_REQUEST:(\{[^>]+\})-->/)
+          if (approvalMatch) {
+            try { setPendingApproval(JSON.parse(approvalMatch[1])) } catch {}
+          }
           // Strip all markers before displaying
           const display = assistantText
             .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
             .replace(/<!--PREVIEW_HTML:[A-Za-z0-9+/=]*-->/g, '')
             .replace(/<!--FILE_ENTRY:\{[^>]*\}-->/g, '')
             .replace(/<!--PREVIEW_URL:[^>]*-->/g, '')
+            .replace(/<!--APPROVAL_REQUEST:[^>]*-->/g, '')
+            .replace(/<!--STRUCTURED_OUTPUT:[^>]*-->/g, '')
+            .replace(/<!--TOKEN_USAGE:\d+-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
         }
 
@@ -587,6 +600,33 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                     <span>{p.text}</span>
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* ── HITL Approval card — shown after agent requests a decision ── */}
+            {pendingApproval && !loading && (
+              <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.35)', borderRadius: 10, padding: '14px 16px', marginTop: 4 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>⏸ Decision Required</div>
+                <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600, marginBottom: 6 }}>{pendingApproval.question}</div>
+                {pendingApproval.context && <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>{pendingApproval.context}</div>}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {(pendingApproval.options?.length > 0 ? pendingApproval.options : ['Approve', 'Reject']).map((opt, i) => (
+                    <button key={i} onClick={() => {
+                      setPendingApproval(null)
+                      sendText(`Decision: ${opt}`)
+                    }} style={{
+                      background: i === 0 ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.06)',
+                      border: `1px solid ${i === 0 ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.15)'}`,
+                      color: i === 0 ? '#a5b4fc' : '#94a3b8',
+                      borderRadius: 7, padding: '7px 16px', fontSize: 12, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}>{opt}</button>
+                  ))}
+                  <button onClick={() => setPendingApproval(null)} style={{
+                    background: 'none', border: 'none', color: '#475569', fontSize: 11,
+                    cursor: 'pointer', fontFamily: 'inherit', padding: '7px 8px',
+                  }}>dismiss</button>
+                </div>
               </div>
             )}
 

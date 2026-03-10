@@ -45,7 +45,9 @@ export async function POST(req) {
   const userId = 'svet'
 
   // Per-conversation isolated workspace. Falls back to global home if no workspaceId supplied.
-  const wsHome = workspaceId ? `/root/workspace/${workspaceId}` : home
+  // On Vercel only /tmp is writable. On Railway /root is writable. Never use /root on Vercel.
+  const wsRoot = isVercel ? '/tmp' : '/root'
+  const wsHome = workspaceId ? `${wsRoot}/workspace/${workspaceId}` : home
   // Ensure workspace exists locally and is a git repo (fire-and-forget)
   if (workspaceId) {
     import('fs').then(({ mkdirSync }) => {
@@ -591,11 +593,11 @@ export async function POST(req) {
   // ── OpenClaw feature tools ─────────────────────────────────────────────────
   const searchMemoryTool = {
     name: 'search_memory',
-    description: 'Search your long-term memory for facts, preferences, or decisions matching a keyword. Use this before starting work to surface relevant past context.',
+    description: 'Search your long-term memory by keyword. Returns memories whose text contains the search term. Use before starting work to surface relevant past context — e.g. search "color palette" to find saved brand colors, "deployment" to find past deploy URLs, "user preference" to find known preferences.',
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Keyword or phrase to find in memory' },
+        query: { type: 'string', description: 'Keyword or phrase to find in memory (case-insensitive substring match)' },
         limit: { type: 'integer', minimum: 1, maximum: 20, description: 'Max results (default 10)' },
       },
       required: ['query'],
@@ -689,46 +691,50 @@ Never ask an open-ended question the internet could answer.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR WORKFLOW — EXECUTE IMMEDIATELY, NO GATES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 1 — Write a vision document immediately
-Call write_document to write ~/st-properties/VISION.md with a complete vision for the project.
-(Note: ~ maps to /tmp on the server, so this writes to /tmp/st-properties/VISION.md)
-Make confident decisions based on industry standards — do NOT ask the user for approval first.
+STEP 1 — Choose a project folder name and write a vision document immediately
+Pick a short slug for the project (e.g. "crm-app", "landing-page", "dashboard"). Use it everywhere.
+Call write_document to write ~/[slug]/VISION.md with a complete vision: what it is, tech stack, target users, key pages/features, design direction.
+Make confident decisions based on industry standards — do NOT ask for approval first.
+Use web_search and fetch_url if you need to research the domain before writing.
 
 STEP 2 — Delegate to UI Agent to research competitors (MANDATORY — do not skip)
-Call delegate_task to the UI Agent BEFORE you touch Backend Programmer.
-Task them: "Use browser_navigate + browser_screenshot to visit 2-3 competitor websites. Return: screenshots, color palette observations, layout patterns, typography choices, and any standout UI patterns. Then close the browser."
-The UI Agent has: browser_navigate, browser_screenshot, browser_click, browser_fill, browser_read, browser_close.
-You MUST wait for the UI Agent result before proceeding to Step 3.
-Skipping this step produces generic, undifferentiated output. This step is NOT optional.
+Call delegate_task to the UI Agent BEFORE touching Backend Programmer.
+Task them: "Research 2-3 competitors for [project type]. Use browser_navigate + browser_screenshot to capture their sites. Return: screenshots, color palette, layout patterns, typography, standout UI decisions. Then close the browser."
+You MUST wait for the UI Agent result before Step 3. Skipping produces generic output.
 
-STEP 3 — Delegate to Backend Programmer with UI research in hand
-Only after UI Agent returns, call delegate_task to the Backend Programmer.
-Include the UI Agent's findings verbatim in the task brief — specific colors, layout patterns, and screenshots observed.
-Tell them to generate a complete single-file static HTML website using write_file to ~/st-properties/index.html.
+STEP 3 — Delegate to Backend Programmer with the full brief
+Only after UI Agent returns, call delegate_task to the Backend Programmer with:
+- The project type and goal
+- The slug/folder to use (~/[slug]/)
+- UI Agent findings verbatim (colors, layout, patterns observed)
+- Tech stack decision: for simple sites use a single index.html; for apps use Next.js or Node.js
+- Tell them to use the blackboard_write tool to store the live URL when deployed
 Do NOT wait for user confirmation. Do NOT say "does this sound good?". Just delegate.
 
-STEP 4 — Report results
-After the Backend Programmer completes, tell the user what was built. The preview will show automatically.
+STEP 4 — Report results to user
+After Backend Programmer completes, tell the user: what was built, live URL, how to run it locally.
+Pull the live URL from blackboard_read if the Backend Programmer wrote it there.
 
 CRITICAL RULES:
 - You MUST call delegate_task within the first 3 tool calls. No exceptions.
 - You NEVER implement code yourself — always use delegate_task.
 - NEVER ask the user for permission to proceed. Just proceed.
-- NEVER say "shall I proceed?" or "does this sound good?" — just do it.` : ''
+- NEVER say "shall I proceed?" or "does this sound good?" — just do it.
+- request_approval is for genuine product decisions only (e.g. "deploy to Vercel or Railway?", "paid plan or free?") — not for technical choices you can make yourself.` : ''
 
   const uiWorkflow = isUIAgent ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR WORKFLOW AS UI AGENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Read VISION.md and BENCHMARK.md first (run_bash: cat ~/project/VISION.md)
+1. Read the VISION.md the CTO wrote — check blackboard_read("vision_path") for the path, or list_dir ~/ and look for VISION.md files.
 2. Use browser_navigate to go to a competitor's website, then browser_screenshot to capture it. Repeat for 2-3 competitors.
 3. Use browser_read to extract pricing, features, or copy if needed.
 4. Always call browser_close when done.
-5. Design in full detail: layout, colors, typography, components, states, edge cases
-6. Present design + competitor screenshots with specific comparisons
-7. Write precise specs for Backend Programmer (exact CSS, component structure, API shape)
+5. Write precise design specs: layout grid, exact colors (hex), font sizes, component hierarchy, hover states, mobile breakpoints.
+6. Store your color palette finding with blackboard_write("brand_colors", {...}) so Backend Programmer can access it.
+7. Present competitor screenshots with specific observations — not "clean look" but "uses 72px hero, white bg #FAFAFA, navy CTA #1B2A4A"
 8. Never contact the user — report to CTO
-9. After implementation: browser_navigate to the live URL, browser_screenshot to verify, compare against design, report gaps` : ''
+9. After implementation: browser_navigate to the live URL, browser_screenshot to verify, compare against spec, report gaps.` : ''
 
   const hasExecServer = !!process.env.EXECUTION_SERVER_URL
   const userFacing = quickMode || false
@@ -760,12 +766,18 @@ PRE-AUTHORIZED CREDENTIALS (already configured, just use them)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DEPLOYMENT WORKFLOW
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The CTO will tell you which folder/slug to use. Use EXACTLY that path.
 To deploy a real app:
-1. run_bash: mkdir ~/workspace/[project] && cd ~/workspace/[project] && npm init -y (or npx create-next-app)
-2. write_file: write source files into ~/workspace/[project]/
-3. run_bash: cd ~/workspace/[project] && npm install && npm run build (if needed)
-4. run_bash: cd ~/workspace/[project] && vercel --prod --yes (deploys to Vercel, returns live URL)
-5. Report the live URL back to ${userFacing ? 'the user' : 'CTO'}
+1. run_bash: mkdir -p ~/[slug] && cd ~/[slug] (use the slug from your task brief)
+2. For simple sites: write_file ~/[slug]/index.html with the full HTML
+   For apps: run_bash "cd ~/[slug] && npm init -y" then write_file source files, then npm install
+3. run_bash: cd ~/[slug] && npm run build (if it's an npm project)
+4. run_bash: cd ~/[slug] && vercel --prod --yes (deploys to Vercel, returns live URL)
+5. Store the live URL: blackboard_write("deployment_url", "https://...")
+6. Report the live URL back to ${userFacing ? 'the user' : 'CTO'}
+
+IMPORTANT: The workspace ~ maps to /tmp on this server. Files persist for this session only.
+Use git_commit frequently so work is checkpointed even if the session ends.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELF-TEST LOOP — MANDATORY
@@ -1724,6 +1736,9 @@ Never skip these. The user is watching and needs to know you're working.`,
       }
 
     // ── Feature 4: Human-in-the-loop pauses ───────────────────────────────────
+    // Architecture: agent emits APPROVAL_REQUEST marker and stops. Frontend shows decision UI.
+    // User clicks an option → their next chat message includes the decision → agent continues.
+    // This avoids blocking the HTTP stream (Vercel 300s limit) and gives proper UX.
     } else if (name === 'request_approval') {
       try {
         const svc = createServiceClient()
@@ -1738,28 +1753,16 @@ Never skip these. The user is watching and needs to know you're working.`,
           options: input.options || null,
           status: 'pending',
         })
-        // Emit UI marker
+        // Emit UI marker — frontend catches this and shows the approval card
         const payload = JSON.stringify({ id: approvalId, question: input.question, options: input.options || [], context: input.context || '' })
-        send(`\n\n⏸️ **Approval Required**\n\n**${input.question}**`)
-        if (input.options?.length) send(`\n\nChoices: ${input.options.map((o, i) => `**${i + 1}.** ${o}`).join(' | ')}`)
+        send(`\n\n⏸️ **Waiting for your decision**\n\n**${input.question}**`)
+        if (input.options?.length) send(`\n\nOptions: ${input.options.map((o, i) => `**${i + 1}.** ${o}`).join(' | ')}`)
         if (input.context) send(`\n\n*${input.context}*`)
         send(`\n\n<!--APPROVAL_REQUEST:${payload}-->`)
-        // Poll for user response (up to 5 minutes, every 5 seconds)
-        let response = null
-        for (let i = 0; i < 60; i++) {
-          await new Promise(r => setTimeout(r, 5000))
-          const { data } = await svc.from('pending_approvals').select('status, response').eq('id', approvalId).maybeSingle()
-          if (data?.status === 'approved' || data?.status === 'rejected') {
-            response = data
-            break
-          }
-        }
-        if (!response) {
-          await svc.from('pending_approvals').update({ status: 'timeout' }).eq('id', approvalId)
-          return 'Approval timed out after 5 minutes. Proceeding with most conservative option.'
-        }
-        send(`\n\n✅ **User responded:** ${response.response || response.status}`)
-        return `User decision: ${response.status} — ${response.response || ''}`
+        // Return immediately — do NOT poll. The stream will close normally.
+        // The frontend will show the decision buttons. The user's next message IS the decision.
+        // When the user replies, the agent loop resumes with their choice as context.
+        return `PAUSED — awaiting your decision on: "${input.question}". Reply with your choice and I will continue from here.`
       } catch (err) {
         return `Approval error: ${err.message}`
       }
@@ -1886,24 +1889,40 @@ Never skip these. The user is watching and needs to know you're working.`,
           // Max output tokens: claude-sonnet-4-6 supports up to 64K output
           const maxTokens = 64000
 
-          const apiStream = anthropic.messages.stream({
-            model: 'claude-sonnet-4-6',
-            max_tokens: maxTokens,
-            thinking: thinkingConfig,
-            tools,
-            tool_choice: toolChoice,
-            system: systemPrompt,
-            messages: loopMessages,
-          })
+          // Rate-limit retry: on 429 or 529 (overloaded), backoff and retry up to 3 times
+          let apiStream, finalMsg
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              apiStream = anthropic.messages.stream({
+                model: 'claude-sonnet-4-6',
+                max_tokens: maxTokens,
+                thinking: thinkingConfig,
+                tools,
+                tool_choice: toolChoice,
+                system: systemPrompt,
+                messages: loopMessages,
+              })
 
-          // Stream text deltas to client in real time
-          for await (const event of apiStream) {
-            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-              send(event.delta.text)
+              // Stream text deltas to client in real time
+              for await (const event of apiStream) {
+                if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+                  send(event.delta.text)
+                }
+              }
+
+              finalMsg = await apiStream.finalMessage()
+              break // success — exit retry loop
+            } catch (apiErr) {
+              const isRateLimit = apiErr?.status === 429 || apiErr?.status === 529 || /rate.?limit|overloaded/i.test(apiErr?.message || '')
+              if (isRateLimit && attempt < 2) {
+                const waitMs = (attempt + 1) * 12000 // 12s, then 24s
+                send(`\n\n⏳ *Rate limit hit — retrying in ${waitMs / 1000}s (attempt ${attempt + 2}/3)...*`)
+                await new Promise(r => setTimeout(r, waitMs))
+              } else {
+                throw apiErr // non-rate-limit error or out of retries
+              }
             }
           }
-
-          const finalMsg = await apiStream.finalMessage()
           totalInputTokens += finalMsg.usage?.input_tokens || 0
           totalOutputTokens += finalMsg.usage?.output_tokens || 0
 
@@ -1912,11 +1931,36 @@ Never skip these. The user is watching and needs to know you're working.`,
           // No tool calls = model is done
           if (toolUseBlocks.length === 0) break
 
-          // Context compaction: if history is growing large, keep only first message + last 8 pairs
-          // This prevents ballooning token costs across 20 iterations
-          if (loopMessages.length > 18) {
-            const firstMsg = loopMessages[0]
-            loopMessages = [firstMsg, ...loopMessages.slice(-16)]
+          // Context compaction: if history is growing large, summarize the middle to preserve
+          // build state without ballooning token costs (OpenClaw-style chunked compaction)
+          if (loopMessages.length > 20) {
+            try {
+              // Keep first user message (the original task) + last 8 messages
+              const anchor = loopMessages[0]
+              const tail = loopMessages.slice(-8)
+              const middle = loopMessages.slice(1, -8)
+              // Summarize the middle messages to preserve key decisions/file paths/URLs
+              const middleText = middle.map(m => {
+                const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                return `[${m.role}]: ${content.slice(0, 800)}`
+              }).join('\n\n')
+              const summaryRes = await anthropic.messages.create({
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 1200,
+                messages: [{ role: 'user', content: `Summarize this agent work log in 600 words. Preserve ALL: file paths written, URLs deployed, decisions made, errors encountered, current task state. This will be injected as context for the agent to continue work.\n\n${middleText}` }],
+              })
+              const summary = summaryRes.content[0]?.text || ''
+              loopMessages = [
+                anchor,
+                { role: 'user', content: `[CONTEXT SUMMARY — work done so far]\n${summary}` },
+                { role: 'assistant', content: 'Understood, continuing from where I left off.' },
+                ...tail,
+              ]
+            } catch {
+              // Fallback to simple truncation if summarization fails
+              const firstMsg = loopMessages[0]
+              loopMessages = [firstMsg, ...loopMessages.slice(-16)]
+            }
           }
 
           // Preserve full response (including thinking blocks) in history
