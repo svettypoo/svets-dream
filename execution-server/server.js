@@ -34,6 +34,29 @@ const os = require('os')
 // across multiple tool calls within the same conversation.
 const browserSessions = new Map() // sessionId → { browser, context, page }
 
+// ── Agent session cache ────────────────────────────────────────────────────────
+// Maps workspaceId → Claude Code SDK session_id for session resumption.
+// Resuming a session re-uses the KV cache for the prior conversation (~80% token
+// savings on repeated context) and gives the agent true multi-turn memory.
+const agentSessions = new Map() // workspaceId → session_id string
+const SESSIONS_FILE = '/root/workspace/.sessions.json'
+
+// Load persisted sessions on startup (survive server restarts)
+;(function loadSessions() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))
+    for (const [k, v] of Object.entries(saved)) agentSessions.set(k, v)
+    console.log(`[agent-sessions] loaded ${agentSessions.size} saved sessions`)
+  } catch {}
+})()
+
+function persistSessions() {
+  try {
+    fs.mkdirSync('/root/workspace', { recursive: true })
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(Object.fromEntries(agentSessions)), 'utf8')
+  } catch {}
+}
+
 async function getSession(sessionId) {
   if (browserSessions.has(sessionId)) return browserSessions.get(sessionId)
   const { chromium } = require('playwright')
@@ -603,19 +626,28 @@ For real work (build, deploy, research, write, fix), briefly acknowledge the tas
         const { query } = await import('@anthropic-ai/claude-agent-sdk')
         let lastText = ''
         let streamedAny = false
-        for await (const event of query({
-          prompt,
-          options: {
-            pathToClaudeCodeExecutable: CLI_PATH,
-            cwd,
-            systemPrompt,
-            allowedTools: ['Bash', 'Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
-            permissionMode: 'dontAsk',
-            maxTurns: 25,
-            abortController: controller,
-            includePartialMessages: true,
-          },
-        })) {
+
+        // Resume prior session if we have one — enables prompt caching + true memory
+        const savedSession = agentSessions.get(workspaceId)
+        if (savedSession) {
+          console.log(`[agent-stream] resuming session ${savedSession} for ${workspaceId}`)
+        } else {
+          console.log(`[agent-stream] new session for ${workspaceId}`)
+        }
+
+        const queryOptions = {
+          pathToClaudeCodeExecutable: CLI_PATH,
+          cwd,
+          systemPrompt,
+          allowedTools: ['Bash', 'Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
+          permissionMode: 'dontAsk',
+          maxTurns: 25,
+          abortController: controller,
+          includePartialMessages: true,
+        }
+        if (savedSession) queryOptions.resume = savedSession
+
+        for await (const event of query({ prompt, options: queryOptions })) {
           if (event.type === 'stream_event') {
             const ev = event.event
             if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
@@ -631,6 +663,14 @@ For real work (build, deploy, research, write, fix), briefly acknowledge the tas
                 res.write(newText.slice(lastText.length))
                 lastText = newText
               }
+            }
+          } else if (event.type === 'result') {
+            // Capture and persist session_id for next call
+            const sid = event.session_id
+            if (sid) {
+              agentSessions.set(workspaceId, sid)
+              persistSessions()
+              console.log(`[agent-stream] saved session ${sid} for ${workspaceId}`)
             }
           }
         }
