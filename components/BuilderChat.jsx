@@ -537,14 +537,14 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
 
           {/* Input */}
           <div style={{ padding: '12px', borderTop: '1px solid #1e3a5f', background: '#0a1520', flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
               <textarea
                 value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
                 placeholder={currentOrg ? 'Talk to your CTO...' : 'What do you want to build?'}
                 rows={2}
                 style={{
-                  flex: 1, padding: '10px 12px', borderRadius: 10,
+                  flex: 1, padding: '10px 44px 10px 14px', borderRadius: 12,
                   border: '1px solid #1e3a5f', outline: 'none', fontSize: 13,
                   resize: 'none', fontFamily: 'inherit', lineHeight: 1.5,
                   background: '#071018', color: '#e2e8f0', transition: 'border-color 0.15s',
@@ -553,14 +553,16 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 onBlur={e => e.target.style.borderColor = '#1e3a5f'}
               />
               <button onClick={send} disabled={!input.trim()} style={{
-                padding: '10px 14px', borderRadius: 10, border: 'none',
-                background: !input.trim() ? '#1e293b' : loading ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                position: 'absolute', right: 8, bottom: 8,
+                width: 32, height: 32, borderRadius: 8, border: 'none',
+                background: !input.trim() ? '#1e293b' : loading ? 'rgba(99,102,241,0.5)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
                 color: !input.trim() ? '#334155' : '#fff',
-                fontWeight: 700, fontSize: 16, cursor: !input.trim() ? 'not-allowed' : 'pointer',
-                alignSelf: 'flex-end', transition: 'all 0.15s',
-              }}>{loading ? '⏎' : '↑'}</button>
+                fontWeight: 700, fontSize: 14, cursor: !input.trim() ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.15s', boxShadow: input.trim() ? '0 2px 8px rgba(99,102,241,0.4)' : 'none',
+              }}>{loading ? '•••' : '↑'}</button>
             </div>
-            <div style={{ fontSize: 10, color: '#334155', marginTop: 6, textAlign: 'center' }}>Enter to send · Shift+Enter for new line</div>
+            <div style={{ fontSize: 9.5, color: '#1e3a5f', marginTop: 4, textAlign: 'right', paddingRight: 4 }}>⏎ send · Shift+⏎ newline</div>
           </div>
         </>
       )}
