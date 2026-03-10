@@ -24,7 +24,7 @@
  */
 
 const http = require('http')
-const { spawn } = require('child_process')
+const { spawn, execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -147,6 +147,79 @@ const BASH = (() => {
 
 // Ensure workspace exists
 fs.mkdirSync(WORK_DIR, { recursive: true })
+
+// ── Backup system ─────────────────────────────────────────────────────────────
+// Backups live in WORK_DIR/__BACKUPS__/<YYYY-MM-DD_HH-MM-SS>/
+// Each backup is a timestamped snapshot of everything in WORK_DIR (excluding __BACKUPS__ itself).
+// A __READONLY__DO_NOT_EDIT__ marker file is written inside every backup to make its purpose
+// unmistakable — never treat these directories as active workspaces.
+// Retention: 48 hours. Pruned automatically on every backup run.
+// ─────────────────────────────────────────────────────────────────────────────
+const BACKUP_DIR = path.join(WORK_DIR, '__BACKUPS__')
+const BACKUP_RETENTION_MS = 48 * 60 * 60 * 1000 // 48 hours
+
+fs.mkdirSync(BACKUP_DIR, { recursive: true })
+
+function runBackup() {
+  const ts = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
+  // e.g. "2026-03-10_14-30-00"
+  const dest = path.join(BACKUP_DIR, ts)
+  try {
+    fs.mkdirSync(dest, { recursive: true })
+    const entries = fs.readdirSync(WORK_DIR)
+    for (const entry of entries) {
+      if (entry === '__BACKUPS__') continue // never back up the backup folder itself
+      const src = path.join(WORK_DIR, entry)
+      const dst = path.join(dest, entry)
+      execSync(`cp -r "${src}" "${dst}"`, { timeout: 120000 })
+    }
+    // Unmistakable read-only marker — prevents any agent or Claude instance from writing here
+    fs.writeFileSync(
+      path.join(dest, '__READONLY__DO_NOT_EDIT__'),
+      [
+        '════════════════════════════════════════════════════════════',
+        '  READ-ONLY RECOVERY SNAPSHOT — DO NOT WRITE FILES HERE',
+        '════════════════════════════════════════════════════════════',
+        `  Created : ${new Date().toISOString()}`,
+        `  Snapshot: ${ts}`,
+        '',
+        '  This directory is a timestamped backup of /root/workspace/.',
+        '  It is NOT an active workspace. Never write to it.',
+        '',
+        '  To restore this snapshot:',
+        `    POST /backup/restore   { "timestamp": "${ts}" }`,
+        '',
+        '  To list all available snapshots:',
+        '    GET /backups',
+        '════════════════════════════════════════════════════════════',
+      ].join('\n')
+    )
+    console.log(`[backup] ✅ snapshot created: ${ts}`)
+    pruneBackups()
+  } catch (err) {
+    console.error(`[backup] ❌ failed: ${err.message}`)
+  }
+}
+
+function pruneBackups() {
+  try {
+    const now = Date.now()
+    for (const entry of fs.readdirSync(BACKUP_DIR)) {
+      const fullPath = path.join(BACKUP_DIR, entry)
+      try {
+        const stat = fs.statSync(fullPath)
+        if (now - stat.ctimeMs > BACKUP_RETENTION_MS) {
+          execSync(`rm -rf "${fullPath}"`, { timeout: 30000 })
+          console.log(`[backup] 🗑  pruned: ${entry}`)
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
+// Run once on startup (so there's always at least one snapshot), then every hour
+runBackup()
+setInterval(runBackup, 60 * 60 * 1000)
 
 console.log(`[exec-server] starting on :${PORT}`)
 console.log(`[exec-server] workspace: ${WORK_DIR}`)
@@ -343,12 +416,72 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // GET /backups — list available recovery snapshots
+  if (req.method === 'GET' && url.pathname === '/backups') {
+    try {
+      const snapshots = fs.readdirSync(BACKUP_DIR)
+        .filter(e => fs.statSync(path.join(BACKUP_DIR, e)).isDirectory())
+        .sort()
+        .reverse() // newest first
+        .map(name => {
+          const stat = fs.statSync(path.join(BACKUP_DIR, name))
+          const ageHours = ((Date.now() - stat.ctimeMs) / 3_600_000).toFixed(1)
+          return { timestamp: name, createdAt: stat.ctime.toISOString(), ageHours: parseFloat(ageHours) }
+        })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, snapshots }))
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: err.message }))
+    }
+    return
+  }
+
+  // POST /backup — trigger a manual snapshot immediately
+  if (req.method === 'POST' && url.pathname === '/backup') {
+    runBackup()
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true, message: 'Backup triggered — check /backups for new snapshot' }))
+    return
+  }
+
+  // POST /backup/restore — restore workspace to a specific snapshot
+  // Body: { "timestamp": "2026-03-10_14-30-00" }
+  // WARNING: overwrites current workspace contents with snapshot contents.
+  if (req.method === 'POST' && url.pathname === '/backup/restore') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', () => {
+      try {
+        const { timestamp } = JSON.parse(body)
+        if (!timestamp) throw new Error('timestamp required')
+        const src = path.join(BACKUP_DIR, timestamp)
+        if (!fs.existsSync(src)) throw new Error(`Snapshot not found: ${timestamp}`)
+        // Back up current state before restoring
+        runBackup()
+        // Restore: for each entry in snapshot (skip the readonly marker), copy to workspace
+        const entries = fs.readdirSync(src).filter(e => e !== '__READONLY__DO_NOT_EDIT__')
+        for (const entry of entries) {
+          const s = path.join(src, entry)
+          const d = path.join(WORK_DIR, entry)
+          execSync(`rm -rf "${d}" && cp -r "${s}" "${d}"`, { timeout: 60000 })
+        }
+        console.log(`[backup] ♻️  restored snapshot: ${timestamp}`)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, restored: timestamp }))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+    })
+    return
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ error: 'Not found' }))
 })
 
 // Auto-install Playwright chromium on startup (survives Railway restarts)
-const { execSync } = require('child_process')
 try {
   execSync('npx playwright install --with-deps chromium', { stdio: 'inherit', timeout: 300000 })
   console.log('[exec-server] Playwright chromium ready')
