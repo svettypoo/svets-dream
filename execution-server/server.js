@@ -114,6 +114,23 @@ async function handleBrowser(action, sessionId, params) {
       return { ok: true, url: page.url(), screenshot: screenshot.toString('base64') }
     }
 
+    if (action === 'eval') {
+      // Execute arbitrary JS in page context, then return screenshot
+      const result = await page.evaluate(new Function('return (' + params.code + ')()').toString().replace(/^function.*\{/, '').replace(/\}$/, '') || params.code).catch(async () => {
+        return await page.evaluate(params.code)
+      })
+      await page.waitForTimeout(params.wait || 500)
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, result, url: page.url(), screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'mouse_click') {
+      await page.mouse.click(params.x, params.y)
+      await page.waitForTimeout(params.wait || 1000)
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, url: page.url(), screenshot: screenshot.toString('base64') }
+    }
+
     return { ok: false, error: `Unknown action: ${action}` }
   } catch (err) {
     return { ok: false, error: err.message }
