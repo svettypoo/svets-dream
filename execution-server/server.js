@@ -538,6 +538,54 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // POST /remember — save a fact to long-term memory (agent_memories Supabase table)
+  // Body: { content: string, type?: string, importance?: number }
+  // Called by the agent via curl localhost during a session
+  if (req.method === 'POST' && url.pathname === '/remember') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const { content, type = 'fact', importance = 3 } = JSON.parse(body)
+        if (!content) throw new Error('content required')
+
+        const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xocfduqugghailalzlqy.supabase.co'
+        let serviceKey = ''
+        try { serviceKey = fs.readFileSync('/root/workspace/.supabase-jwt', 'utf8').trim() } catch {}
+        if (!serviceKey) serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+
+        await new Promise((resolve, reject) => {
+          const https = require('https')
+          const payload = JSON.stringify({ user_id: 'svet', content, type, importance })
+          const opts = new URL(`${SUPABASE_URL}/rest/v1/agent_memories`)
+          const reqOut = https.request({
+            hostname: opts.hostname,
+            path: opts.pathname,
+            method: 'POST',
+            headers: {
+              'apikey': serviceKey,
+              'Authorization': `Bearer ${serviceKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal',
+              'Content-Length': Buffer.byteLength(payload),
+            },
+          }, r => { r.resume(); r.on('end', resolve) })
+          reqOut.on('error', reject)
+          reqOut.write(payload)
+          reqOut.end()
+        })
+
+        console.log(`[remember] saved: [${type}] ${content.slice(0, 80)}`)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+    })
+    return
+  }
+
   // POST /agent-stream — run Claude Code SDK agent, stream text back
   // Bypasses Vercel entirely: always-warm Railway server, no cold start
   // Body: { messages: [{role, content}][], workspaceId?: string }
@@ -599,6 +647,22 @@ Think out loud in short bursts. Output a short line BEFORE each action. After ea
         `## Task Tracking
 For simple questions (under ~15 words asking for info), answer immediately — no task tracking needed.
 For real work (build, deploy, research, write, fix), briefly acknowledge the task and start working.`,
+        `## Long-term Memory Tool (remember)
+Save important facts that should persist across future conversations using Bash:
+
+  curl -s -X POST http://localhost:${PORT}/remember \\
+    -H "Authorization: Bearer ${EXEC_TOKEN}" \\
+    -H "Content-Type: application/json" \\
+    -d '{"content":"...","type":"fact","importance":2}'
+
+Types: preference | fact | project | pattern | credential
+Importance: 1=critical, 2=high, 3=normal, 4=low
+
+Use this proactively whenever you:
+- Complete something worth remembering (URLs, credentials, decisions)
+- Learn a preference or working style from Svet
+- Discover a pattern or solution that might apply again
+- Finish building something (record its URL + stack)`,
       ].filter(Boolean).join('\n\n')
 
       // Build conversation history as context prefix in the prompt
