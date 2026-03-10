@@ -347,6 +347,15 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: 'Not found' }))
 })
 
+// Auto-install Playwright chromium on startup (survives Railway restarts)
+const { execSync } = require('child_process')
+try {
+  execSync('npx playwright install --with-deps chromium', { stdio: 'inherit', timeout: 300000 })
+  console.log('[exec-server] Playwright chromium ready')
+} catch (e) {
+  console.error('[exec-server] Playwright install failed:', e.message)
+}
+
 server.listen(PORT, () => {
   console.log(`[exec-server] listening on :${PORT}`)
 })
