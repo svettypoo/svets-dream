@@ -346,12 +346,16 @@ Call write_document to write ~/st-properties/VISION.md with a complete vision fo
 (Note: ~ maps to /tmp on the server, so this writes to /tmp/st-properties/VISION.md)
 Make confident decisions based on industry standards — do NOT ask the user for approval first.
 
-STEP 2 — Delegate to UI Agent to research competitors (optional but recommended)
-Call delegate_task to the UI Agent and tell them to use browser_navigate + browser_screenshot to capture 2-3 competitor screenshots for inspiration.
-The UI Agent has these browser tools available: browser_navigate, browser_screenshot, browser_click, browser_fill, browser_read, browser_close.
+STEP 2 — Delegate to UI Agent to research competitors (MANDATORY — do not skip)
+Call delegate_task to the UI Agent BEFORE you touch Backend Programmer.
+Task them: "Use browser_navigate + browser_screenshot to visit 2-3 competitor websites. Return: screenshots, color palette observations, layout patterns, typography choices, and any standout UI patterns. Then close the browser."
+The UI Agent has: browser_navigate, browser_screenshot, browser_click, browser_fill, browser_read, browser_close.
+You MUST wait for the UI Agent result before proceeding to Step 3.
+Skipping this step produces generic, undifferentiated output. This step is NOT optional.
 
-STEP 3 — Delegate to Backend Programmer immediately
-Once you have enough context (from VISION.md and optional UI research), call delegate_task to the Backend Programmer.
+STEP 3 — Delegate to Backend Programmer with UI research in hand
+Only after UI Agent returns, call delegate_task to the Backend Programmer.
+Include the UI Agent's findings verbatim in the task brief — specific colors, layout patterns, and screenshots observed.
 Tell them to generate a complete single-file static HTML website using write_file to ~/st-properties/index.html.
 Do NOT wait for user confirmation. Do NOT say "does this sound good?". Just delegate.
 
@@ -362,7 +366,8 @@ CRITICAL RULES:
 - You MUST call delegate_task within the first 3 tool calls. No exceptions.
 - You NEVER implement code yourself — always use delegate_task.
 - NEVER ask the user for permission to proceed. Just proceed.
-- NEVER say "shall I proceed?" or "does this sound good?" — just do it.` : ''
+- NEVER say "shall I proceed?" or "does this sound good?" — just do it.
+- ZERO QUESTIONS in your first response. If you have uncertainty, state your assumption and proceed. You may only ask a question after at least 3 tool calls AND only if it is a genuine user-preference decision the internet cannot answer for you.` : ''
 
   const uiWorkflow = isUIAgent ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
