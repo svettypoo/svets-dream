@@ -8,8 +8,29 @@ export const maxDuration = 300  // 5 min — Vercel Pro limit for long agent cha
 const MAX_ITERATIONS = 20
 const MAX_DELEGATION_DEPTH = 2
 
+// ── Features registry cache (1hr TTL) ─────────────────────────────────────
+// Reads features.md from Railway workspace — synced hourly by sync-features.js
+let _featuresCache = { content: '', fetchedAt: 0 }
+async function getFeatures() {
+  const now = Date.now()
+  if (_featuresCache.content && now - _featuresCache.fetchedAt < 3_600_000) return _featuresCache.content
+  try {
+    const execUrl = process.env.EXECUTION_SERVER_URL
+    const execToken = process.env.EXEC_TOKEN || 'svets-exec-token-2026'
+    if (!execUrl) return ''
+    const res = await fetch(`${execUrl}/read?path=/root/workspace/features.md`, {
+      headers: { Authorization: `Bearer ${execToken}` },
+    })
+    if (!res.ok) return ''
+    const content = await res.text()
+    _featuresCache = { content: content.slice(0, 12000), fetchedAt: now }
+    return _featuresCache.content
+  } catch { return '' }
+}
+
 export async function POST(req) {
   const { agent, messages, orgContext, rules, _delegationDepth = 0 } = await req.json()
+  const featuresContext = await getFeatures()
 
   // On Vercel serverless, HOME=/var/task which is read-only. Use /tmp for all writes.
   const rawHome = process.env.HOME || process.env.USERPROFILE || process.cwd()
@@ -261,6 +282,44 @@ export async function POST(req) {
       input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
+      name: 'send_email',
+      description: 'Send a transactional email via Resend. Use to notify users, send reports, deliver results, or alert on events.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient email address' },
+          subject: { type: 'string', description: 'Email subject line' },
+          html: { type: 'string', description: 'HTML body of the email' },
+          from: { type: 'string', description: 'Sender address (default: noreply@birthdayboard.email)' },
+        },
+        required: ['to', 'subject', 'html'],
+      },
+    },
+    {
+      name: 'send_sms',
+      description: 'Send an SMS message via Telnyx to any phone number. Use to alert, notify, or communicate with users.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'Recipient phone number in E.164 format (e.g. +14155551234)' },
+          message: { type: 'string', description: 'SMS message text (max 160 chars for single segment)' },
+        },
+        required: ['to', 'message'],
+      },
+    },
+    {
+      name: 'query_db',
+      description: 'Query or write to the Supabase database directly. Run any SELECT, INSERT, UPDATE, or DELETE. Use for reading data, checking state, or persisting results.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          sql: { type: 'string', description: 'SQL query to execute (SELECT, INSERT, UPDATE, DELETE)' },
+          params: { type: 'array', description: 'Optional parameterized query values', items: { type: 'string' } },
+        },
+        required: ['sql'],
+      },
+    },
+    {
       name: 'screenshot_url',
       description: 'Navigate to any URL and take a screenshot in one step. The screenshot renders inline in the chat. Use this to verify a deployed site, check a competitor, or confirm a UI change. Faster than browser_navigate + browser_screenshot separately.',
       input_schema: {
@@ -475,7 +534,10 @@ DO NOT attempt npm install, git push, or running a server.`) : ''
     // 4. Skills instructions
     skillInstructions || '',
 
-    // 5. Global rules
+    // 5. Feature registry — all services/tools available across all projects
+    featuresContext ? `## Available Services & Tools (do NOT rebuild these — reuse them)\n${featuresContext}` : '',
+
+    // 6. Global rules
     globalRules || '',
 
     // 6. Org context
@@ -705,6 +767,90 @@ Never skip these. The user is watching and needs to know you're working.`,
         return `exit ${r.exitCode}:\n${truncated}`
       } catch (err) {
         send(`\n\n❌ **Error:** ${err.message}`)
+        return `Error: ${err.message}`
+      }
+
+    } else if (name === 'send_email') {
+      send(`\n\n📧 **Sending email** to \`${input.to}\`...`)
+      try {
+        const apiKey = process.env.RESEND_API_KEY
+        if (!apiKey) return 'send_email requires RESEND_API_KEY env var.'
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            from: input.from || 'Svet\'s Dream <noreply@birthdayboard.email>',
+            to: [input.to],
+            subject: input.subject,
+            html: input.html,
+          }),
+        })
+        const result = await res.json()
+        if (result.id) {
+          send(`\n\n✅ Email sent (id: ${result.id})`)
+          return `Email sent successfully. ID: ${result.id}`
+        } else {
+          send(`\n\n❌ Email failed: ${result.message || JSON.stringify(result)}`)
+          return `Error: ${result.message || JSON.stringify(result)}`
+        }
+      } catch (err) {
+        send(`\n\n❌ Email error: ${err.message}`)
+        return `Error: ${err.message}`
+      }
+
+    } else if (name === 'send_sms') {
+      send(`\n\n📱 **Sending SMS** to \`${input.to}\`...`)
+      try {
+        const apiKey = process.env.TELNYX_API_KEY
+        if (!apiKey) return 'send_sms requires TELNYX_API_KEY env var.'
+        const res = await fetch('https://api.telnyx.com/v2/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            from: '+15878643090',
+            to: input.to,
+            text: input.message,
+          }),
+        })
+        const result = await res.json()
+        if (result.data?.id) {
+          send(`\n\n✅ SMS sent (id: ${result.data.id})`)
+          return `SMS sent successfully. ID: ${result.data.id}`
+        } else {
+          const err = result.errors?.[0]?.detail || JSON.stringify(result)
+          send(`\n\n❌ SMS failed: ${err}`)
+          return `Error: ${err}`
+        }
+      } catch (err) {
+        send(`\n\n❌ SMS error: ${err.message}`)
+        return `Error: ${err.message}`
+      }
+
+    } else if (name === 'query_db') {
+      send(`\n\n🗄️ **DB query:** \`${input.sql.slice(0, 80)}${input.sql.length > 80 ? '...' : ''}\``)
+      try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+        if (!supabaseUrl || !serviceKey) return 'query_db requires Supabase env vars.'
+        const res = await fetch(`${supabaseUrl}/rest/v1/rpc/exec_sql`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ query: input.sql }),
+        })
+        // Fallback: if exec_sql not available, return helpful message
+        if (res.status === 404) {
+          return 'Direct SQL not available. Use run_bash with a node script using SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY env vars to query via REST API.'
+        }
+        const result = await res.json()
+        const preview = JSON.stringify(result).slice(0, 1000)
+        send(`\n\n**Result:**\n\`\`\`json\n${preview}\n\`\`\``)
+        return preview
+      } catch (err) {
+        send(`\n\n❌ DB error: ${err.message}`)
         return `Error: ${err.message}`
       }
 
