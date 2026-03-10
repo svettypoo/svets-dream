@@ -125,6 +125,7 @@ export default function Dashboard() {
   const [agentChats, setAgentChats] = useState({}) // nodeId → message string
   const [activeAgents, setActiveAgents] = useState(new Set())
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null)
+  const [showActivity, setShowActivity] = useState(false)
   const revealTimersRef = useRef([])
   const chartRef = useRef(null)
   const chatRef = useRef(null)
@@ -359,6 +360,11 @@ export default function Dashboard() {
           }}>{icon} {label}</a>
         ))}
         <div style={{ width: 1, height: 20, background: '#1e293b', margin: '0 4px' }} />
+        <button onClick={() => setShowActivity(v => !v)} style={{
+          fontSize: 11, color: showActivity ? '#a78bfa' : '#475569', background: 'transparent',
+          border: `1px solid ${showActivity ? 'rgba(167,139,250,0.3)' : '#1e293b'}`,
+          padding: '4px 9px', borderRadius: 6, cursor: 'pointer', transition: 'all 0.15s',
+        }}>👁 Activity</button>
         {user && <span style={{ fontSize: 10, color: '#334155', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</span>}
         <button onClick={handleSignOut} style={{ fontSize: 11, color: '#64748b', background: 'transparent', border: '1px solid #1e293b', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', transition: 'color 0.15s' }}
           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
@@ -401,8 +407,8 @@ export default function Dashboard() {
         {/* Build Preview — always visible */}
         <BuilderPreview visible={true} workspaceId={currentWorkspaceId} />
 
-        {/* Right: Activity Feed */}
-        <ActivityFeed />
+        {/* Right: Activity Feed — toggleable */}
+        {showActivity && <ActivityFeed />}
       </div>
 
       {selectedAgent && (
