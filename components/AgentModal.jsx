@@ -118,12 +118,14 @@ function AgentResume({ agent, orgData, onStartChat }) {
 }
 
 export default function AgentModal({ agent, orgData, rulesDescription, onClose, initialMessage }) {
-  const [view, setView] = useState('resume') // 'resume' | 'chat'
+  const [view, setView] = useState('resume') // 'resume' | 'chat' | 'memory'
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [queued, setQueued] = useState([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
+  const [memories, setMemories] = useState([])
+  const [memoriesLoaded, setMemoriesLoaded] = useState(false)
   const bottomRef = useRef(null)
   const abortRef = useRef(null)
   const supabase = createClient()
@@ -142,13 +144,32 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
         .maybeSingle()
       if (data?.messages?.length) {
         setMessages(data.messages)
-        // If they have history, go straight to chat
         setView('chat')
       }
       setHistoryLoaded(true)
     }
     loadHistory()
   }, [agent.id, agent.label])
+
+  // Load memories when memory view is opened
+  useEffect(() => {
+    if (view !== 'memory' || memoriesLoaded) return
+    async function loadMemories() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const agentId = agent.id || agent.label
+      const { data } = await supabase
+        .from('agent_memories')
+        .select('id, content, type, importance, created_at')
+        .eq('agent_id', agentId)
+        .eq('user_id', user.id)
+        .order('importance', { ascending: false })
+        .order('created_at', { ascending: false })
+      setMemories(data || [])
+      setMemoriesLoaded(true)
+    }
+    loadMemories()
+  }, [view])
 
   // If opened with a kickoff message and no history, switch to chat and auto-send
   const kickoffFiredRef = useRef(false)
@@ -173,6 +194,13 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
       sendMessage(next)
     }
   }, [loading])
+
+  async function deleteMemory(id) {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    await supabase.from('agent_memories').delete().eq('id', id).eq('user_id', user.id)
+    setMemories(prev => prev.filter(m => m.id !== id))
+  }
 
   function emitStatus(active) {
     window.dispatchEvent(new CustomEvent('agentStatus', { detail: { agentId: agent.id || agent.label, active } }))
@@ -405,14 +433,14 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
           background: 'rgba(99,102,241,0.08)',
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          {view === 'chat' && (
+          {(view === 'chat' || view === 'memory') && (
             <button onClick={() => setView('resume')} style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: '#475569', fontSize: 18, padding: '0 4px', lineHeight: 1,
             }} title="Back to profile">←</button>
           )}
-          <div style={{ fontSize: 12, fontWeight: 600, color: view === 'chat' ? '#e2e8f0' : '#6366f1' }}>
-            {view === 'resume' ? 'Agent Profile' : agent.label}
+          <div style={{ fontSize: 12, fontWeight: 600, color: view === 'resume' ? '#6366f1' : '#e2e8f0' }}>
+            {view === 'resume' ? 'Agent Profile' : view === 'memory' ? `${agent.label} — Memory` : agent.label}
           </div>
           {view === 'chat' && loading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
@@ -425,29 +453,86 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
               {queued.length} queued
             </div>
           )}
-          {view === 'chat' && (
-            <button onClick={async () => {
-              const { data: { user } } = await supabase.auth.getUser()
-              if (!user) return
-              const agentId = agent.id || agent.label
-              await supabase.from('agent_conversations').delete()
-                .eq('user_id', user.id).eq('agent_id', agentId)
-              setMessages([])
-            }} title="Clear history" style={{
-              marginLeft: 'auto', background: 'none', border: 'none',
-              cursor: 'pointer', fontSize: 11, color: '#475569', padding: '4px 8px',
-              borderRadius: 6,
-            }} onMouseOver={e => e.target.style.color='#f87171'} onMouseOut={e => e.target.style.color='#475569'}>
-              Clear
-            </button>
-          )}
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', marginLeft: view === 'chat' ? 0 : 'auto',
-            cursor: 'pointer', fontSize: 18, color: '#334155', padding: 4,
-          }}>×</button>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {view === 'resume' && (
+              <button onClick={() => setView('memory')} title="View memory" style={{
+                background: 'none', border: '1px solid #1e293b', cursor: 'pointer',
+                fontSize: 10, color: '#64748b', padding: '3px 8px', borderRadius: 6,
+                fontWeight: 600,
+              }} onMouseOver={e => e.target.style.color='#a78bfa'} onMouseOut={e => e.target.style.color='#64748b'}>
+                🧠 Memory
+              </button>
+            )}
+            {view === 'chat' && (
+              <button onClick={async () => {
+                const { data: { user } } = await supabase.auth.getUser()
+                if (!user) return
+                const agentId = agent.id || agent.label
+                await supabase.from('agent_conversations').delete()
+                  .eq('user_id', user.id).eq('agent_id', agentId)
+                setMessages([])
+              }} title="Clear history" style={{
+                background: 'none', border: 'none',
+                cursor: 'pointer', fontSize: 11, color: '#475569', padding: '4px 8px',
+                borderRadius: 6,
+              }} onMouseOver={e => e.target.style.color='#f87171'} onMouseOut={e => e.target.style.color='#475569'}>
+                Clear
+              </button>
+            )}
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none',
+              cursor: 'pointer', fontSize: 18, color: '#334155', padding: 4,
+            }}>×</button>
+          </div>
         </div>
 
-        {view === 'resume' ? (
+        {view === 'memory' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', scrollbarWidth: 'none' }}>
+            <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
+              Long-term Memory — {memories.length} {memories.length === 1 ? 'entry' : 'entries'}
+            </div>
+            {!memoriesLoaded && <div style={{ color: '#334155', fontSize: 12 }}>Loading...</div>}
+            {memoriesLoaded && memories.length === 0 && (
+              <div style={{ textAlign: 'center', color: '#334155', marginTop: 40, fontSize: 13 }}>
+                <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.4 }}>🧠</div>
+                <div>No memories yet.</div>
+                <div style={{ fontSize: 12, marginTop: 6, color: '#1e293b' }}>
+                  {agent.label} will save important facts here automatically.
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {memories.map(m => (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  padding: '10px 12px', borderRadius: 8,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                }}>
+                  <div style={{
+                    flexShrink: 0, marginTop: 1,
+                    fontSize: 10, fontWeight: 700, color: m.importance >= 4 ? '#f59e0b' : m.importance >= 3 ? '#6366f1' : '#475569',
+                    background: m.importance >= 4 ? 'rgba(245,158,11,0.1)' : 'rgba(99,102,241,0.1)',
+                    border: `1px solid ${m.importance >= 4 ? 'rgba(245,158,11,0.2)' : 'rgba(99,102,241,0.2)'}`,
+                    borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: '0.05em',
+                  }}>
+                    {m.type}
+                  </div>
+                  <div style={{ flex: 1, fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>{m.content}</div>
+                  <button onClick={() => deleteMemory(m.id)} style={{
+                    flexShrink: 0, background: 'none', border: 'none',
+                    cursor: 'pointer', color: '#1e293b', fontSize: 14, padding: '0 2px',
+                    lineHeight: 1,
+                  }}
+                  onMouseOver={e => e.target.style.color='#f87171'}
+                  onMouseOut={e => e.target.style.color='#1e293b'}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : view === 'resume' ? (
           <AgentResume agent={agent} orgData={orgData} onStartChat={() => setView('chat')} />
         ) : (
           <>

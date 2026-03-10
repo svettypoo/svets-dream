@@ -1,5 +1,5 @@
 import { anthropic } from '@/lib/claude'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase-server'
 import { checkBudget, recordTransaction } from '@/lib/spend-tracker'
 import { spawn } from 'child_process'
 
@@ -43,6 +43,46 @@ export async function POST(req) {
   const isCTO = /cto|chief\s*tech/i.test(agent.role || '') || /cto/i.test(agent.label || '')
   const isTopAgent = (agent.level === 0 || agent.level === '0' || isCTO) && agent.id !== 'rules'
   const isUIAgent = /ui\s*agent|design|ux|front.?end/i.test(agent.role || '') || /ui\s*agent/i.test(agent.label || '')
+  const agentId = agent.id || agent.label
+
+  // ── Load memories + skills from Supabase ──────────────────────────────────
+  let memoriesPrompt = ''
+  let skillTools = []
+  let skillInstructions = ''
+
+  if (userId) {
+    try {
+      const svc = createServiceClient()
+
+      // Load top 20 memories (highest importance + most recent)
+      const { data: memories } = await svc
+        .from('agent_memories')
+        .select('content, type, importance')
+        .eq('user_id', userId)
+        .eq('agent_id', agentId)
+        .order('importance', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (memories?.length) {
+        memoriesPrompt = `\n\n## Long-term Memory (things I know)\n${memories.map(m => `[${m.type}] ${m.content}`).join('\n')}`
+      }
+
+      // Load skills assigned to this agent
+      const { data: agentSkillRows } = await svc
+        .from('agent_skills')
+        .select('skills(id, slug, name, description, tool_definition, instructions)')
+        .eq('user_id', userId)
+        .eq('agent_id', agentId)
+
+      if (agentSkillRows?.length) {
+        for (const row of agentSkillRows) {
+          if (row.skills?.tool_definition) skillTools.push({ ...row.skills.tool_definition, _skill_id: row.skills.id, _skill_slug: row.skills.slug })
+          if (row.skills?.instructions) skillInstructions += `\n\n### Skill: ${row.skills.name}\n${row.skills.instructions}`
+        }
+      }
+    } catch {}
+  }
 
   const teamRoster = orgContext?.nodes
     ?.filter(n => n.id !== 'rules' && n.id !== (agent.id || agent.label))
@@ -140,7 +180,35 @@ export async function POST(req) {
     },
   ]
 
-  const tools = isTopAgent ? managerTools : implementerTools
+  // ── Cross-agent tools (available to everyone) ─────────────────────────────
+  const rememberTool = {
+    name: 'remember',
+    description: 'Save an important fact, preference, goal, or context to long-term memory. This persists across all future conversations. Call this after learning something critical about the user, project, or decisions made.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'The fact or insight to remember' },
+        type: { type: 'string', enum: ['fact', 'preference', 'goal', 'context'], description: 'Category of memory' },
+        importance: { type: 'integer', minimum: 1, maximum: 5, description: '1=minor detail, 3=normal, 5=critical must-know' },
+      },
+      required: ['content'],
+    },
+  }
+
+  const recallLogTool = {
+    name: 'recall_log',
+    description: 'Read your activity log for a past date to remember what you worked on.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Date in YYYY-MM-DD format. Defaults to today.' },
+      },
+      required: [],
+    },
+  }
+
+  const baseTools = isTopAgent ? managerTools : implementerTools
+  const tools = [...baseTools, rememberTool, recallLogTool, ...skillTools]
 
   // ── System prompt ─────────────────────────────────────────────────────────
   const globalRules = rules
@@ -236,12 +304,13 @@ DO NOT attempt npm install, git push, or running a server.` : ''
   const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
 
 ${agent.description}
-${ctoWorkflow}${uiWorkflow}${implementerInstructions}
+${ctoWorkflow}${uiWorkflow}${implementerInstructions}${skillInstructions}
 
 ${globalRules}Org context:
 ${orgContext ? JSON.stringify(orgContext.nodes?.map(n => ({ id: n.id, label: n.label, role: n.role, level: n.level })), null, 2) : 'Standalone agent.'}
-
-You are fully autonomous. Be direct and decisive. No hedging, no asking for permission, no vague language.`
+${memoriesPrompt}
+You are fully autonomous. Be direct and decisive. No hedging, no asking for permission, no vague language.
+Use the remember tool to save important facts. Use recall_log to look back at past work.`
 
   // ── Bash runner ───────────────────────────────────────────────────────────
   const { existsSync } = await import('fs')
@@ -440,7 +509,115 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
       }
     }
 
+    } else if (name === 'remember') {
+      if (!userId) return 'Memory not saved — no active user session.'
+      try {
+        const svc = createServiceClient()
+        await svc.from('agent_memories').insert({
+          user_id: userId,
+          agent_id: agentId,
+          content: input.content,
+          type: input.type || 'fact',
+          importance: input.importance || 3,
+        })
+        send(`\n\n🧠 **Remembered:** ${input.content.slice(0, 120)}`)
+        return `Saved to long-term memory: "${input.content.slice(0, 120)}"`
+      } catch (err) {
+        return `Error saving memory: ${err.message}`
+      }
+
+    } else if (name === 'recall_log') {
+      if (!userId) return 'No active user session.'
+      try {
+        const svc = createServiceClient()
+        const date = input.date || new Date().toISOString().slice(0, 10)
+        const { data } = await svc.from('agent_logs')
+          .select('content')
+          .eq('user_id', userId)
+          .eq('agent_id', agentId)
+          .eq('date', date)
+          .maybeSingle()
+        return data?.content || `No activity log found for ${date}.`
+      } catch (err) {
+        return `Error: ${err.message}`
+      }
+
+    } else if (skillTools.some(t => t.name === name)) {
+      // Dynamic skill execution
+      const skill = skillTools.find(t => t.name === name)
+      send(`\n\n⚡ **Skill:** ${skill?.description?.slice(0, 80) || name}...`)
+      try {
+        const svc = createServiceClient()
+        const { data: skillData } = await svc.from('skills').select('api_calls, env_vars').eq('id', skill._skill_id).maybeSingle()
+        if (!skillData?.api_calls?.length) return `Skill "${name}" has no API calls configured.`
+
+        const { data: keys } = await svc.from('user_api_keys').select('service, key_encrypted').eq('user_id', userId)
+        const keyMap = {}
+        if (keys) for (const k of keys) keyMap[k.service] = k.key_encrypted
+
+        let results = []
+        for (const call of skillData.api_calls) {
+          let url = call.url || ''
+          let headers = { ...(call.headers || {}) }
+          let body = call.body ? JSON.stringify(call.body) : undefined
+
+          // Substitute env vars from user's stored keys
+          const envVarNames = Object.keys(skillData.env_vars || {})
+          for (const varName of envVarNames) {
+            const keyVal = keyMap[varName.toLowerCase()] || process.env[varName] || ''
+            const re = new RegExp(`\\{\\{${varName}\\}\\}`, 'g')
+            url = url.replace(re, keyVal)
+            if (body) body = body.replace(re, keyVal)
+            for (const h of Object.keys(headers)) headers[h] = headers[h].replace(re, keyVal)
+          }
+
+          // Substitute input params
+          for (const [k, v] of Object.entries(input)) {
+            const re = new RegExp(`\\{\\{${k}\\}\\}`, 'g')
+            url = url.replace(re, v)
+            if (body) body = body.replace(re, String(v))
+          }
+
+          const res = await fetch(url, {
+            method: call.method || 'GET',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body,
+          })
+          const text = await res.text()
+          results.push(`${call.method || 'GET'} ${url.slice(0, 60)} → ${res.status}: ${text.slice(0, 500)}`)
+        }
+        const out = results.join('\n\n')
+        send(`\n\n**Result:**\n\`\`\`\n${out.slice(0, 2000)}\n\`\`\``)
+        return out.slice(0, 3000)
+      } catch (err) {
+        send(`\n\n❌ Skill error: ${err.message}`)
+        return `Error: ${err.message}`
+      }
+    }
+
     return `Unknown tool: ${name}`
+  }
+
+  // ── Append to daily activity log ───────────────────────────────────────────
+  async function appendToLog(entry) {
+    if (!userId) return
+    try {
+      const svc = createServiceClient()
+      const date = new Date().toISOString().slice(0, 10)
+      const timestamp = new Date().toISOString().slice(11, 19)
+      const line = `[${timestamp}] ${entry}`
+      const { data: existing } = await svc.from('agent_logs')
+        .select('id, content')
+        .eq('user_id', userId)
+        .eq('agent_id', agentId)
+        .eq('date', date)
+        .maybeSingle()
+      if (existing) {
+        await svc.from('agent_logs').update({ content: existing.content + '\n' + line, updated_at: new Date().toISOString() }).eq('id', existing.id)
+      } else {
+        await svc.from('agent_logs').insert({ user_id: userId, agent_id: agentId, date, content: line })
+      }
+    } catch {}
   }
 
   // ── Stream ────────────────────────────────────────────────────────────────
@@ -468,15 +645,27 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
 
           // NOTE: Anthropic API does not allow thinking + tool_choice:any/required together.
           // For top agents (CTO/manager), force tool call for first 5 iters; thinking enabled after.
-          // For implementers (Backend Programmer etc.), ALWAYS disable thinking:
+          // For implementers (Backend Programmer etc.), ALWAYS disable thinking by default:
           //   - Implementers just write code/HTML — thinking wastes max_tokens budget
-          //   - With thinking=8000 + max_tokens=16000, only 8000 tokens remain for HTML → truncated tool call → content=undefined
+          //   - With thinking=8000 + max_tokens=16000, only 8000 tokens remain for HTML → truncated tool call
           const forceToolCall = isTopAgent && iter < 5
           const toolChoice = forceToolCall ? { type: 'any' } : { type: 'auto' }
-          // budget_tokens deprecated on claude-opus-4-6 — use effort instead
-          const thinkingConfig = (!isTopAgent || forceToolCall)
-            ? { type: 'disabled' }
-            : { type: 'enabled', effort: 'high' }
+
+          // Phase 5: Adaptive thinking — use per-agent thinking_depth if set
+          const thinkingDepth = agent.thinking_depth || (isTopAgent ? 'high' : 'off')
+          function resolveThinking(depth, forceOff) {
+            if (forceOff) return { type: 'disabled' }
+            const lastMsg = loopMessages[loopMessages.length - 1]
+            const msgLen = typeof lastMsg?.content === 'string' ? lastMsg.content.length : 0
+            switch (depth) {
+              case 'off': return { type: 'disabled' }
+              case 'low': return { type: 'enabled', effort: 'low' }
+              case 'high': return { type: 'enabled', effort: 'high' }
+              case 'adaptive': return msgLen > 500 ? { type: 'enabled', effort: 'high' } : { type: 'disabled' }
+              default: return isTopAgent ? { type: 'enabled', effort: 'high' } : { type: 'disabled' }
+            }
+          }
+          const thinkingConfig = resolveThinking(thinkingDepth, forceToolCall)
 
           // Max output tokens: claude-opus-4-6 supports up to 128K output
           const maxTokens = 128000
@@ -541,6 +730,10 @@ You are fully autonomous. Be direct and decisive. No hedging, no asking for perm
             agentName: agent.label,
             reason: messages[messages.length - 1]?.content?.slice(0, 200) || 'Agent chat',
           }).catch(() => {})
+
+          // Append to daily log
+          const userMsg = messages[messages.length - 1]?.content?.slice(0, 200) || 'task'
+          await appendToLog(`${agent.label} handled: "${userMsg}" (${totalInputTokens}in/${totalOutputTokens}out tokens)`).catch(() => {})
         }
 
         controller.close()
