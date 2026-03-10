@@ -20,64 +20,86 @@ export async function POST(req) {
   const origin = `${reqUrl.protocol}//${reqUrl.host}`
   const cookie = req.headers.get('cookie') || ''
 
-  // Auth disabled — open access
-  const userId = null
+  // Single-user workspace — always Svet. Auth wall removed.
+  const userId = 'svet'
 
   const isCTO = /cto|chief\s*tech/i.test(agent.role || '') || /cto/i.test(agent.label || '')
   const isTopAgent = (agent.level === 0 || agent.level === '0' || isCTO) && agent.id !== 'rules'
   const isUIAgent = /ui\s*agent|design|ux|front.?end/i.test(agent.role || '') || /ui\s*agent/i.test(agent.label || '')
   const agentId = agent.id || agent.label
 
-  // ── Load profile (SOUL.md + AGENTS.md), memories, skills from Supabase ──────
-  let soulMd = ''        // OpenClaw SOUL.md equivalent — injected FIRST
-  let agentsMd = ''      // OpenClaw AGENTS.md equivalent — operational instructions
+  // ── Load profile, memories, projects, skills from Supabase ───────────────
+  let soulMd = ''
+  let agentsMd = ''
   let memoriesPrompt = ''
   let skillTools = []
   let skillInstructions = ''
 
-  if (userId) {
-    try {
-      const svc = createServiceClient()
+  try {
+    const svc = createServiceClient()
 
-      // Load persistent agent profile (SOUL.md + AGENTS.md)
-      const { data: profile } = await svc
-        .from('agent_profiles')
-        .select('soul_md, agents_md')
-        .eq('user_id', userId)
-        .eq('agent_id', agentId)
-        .maybeSingle()
-      if (profile?.soul_md) soulMd = profile.soul_md
-      if (profile?.agents_md) agentsMd = profile.agents_md
+    // Load persistent agent profile (SOUL.md + AGENTS.md)
+    const { data: profile } = await svc
+      .from('agent_profiles')
+      .select('soul_md, agents_md')
+      .eq('user_id', userId)
+      .eq('agent_id', agentId)
+      .maybeSingle()
+    if (profile?.soul_md) soulMd = profile.soul_md
+    if (profile?.agents_md) agentsMd = profile.agents_md
 
-      // Load top 20 memories (highest importance + most recent)
-      const { data: memories } = await svc
-        .from('agent_memories')
-        .select('content, type, importance')
-        .eq('user_id', userId)
-        .eq('agent_id', agentId)
-        .order('importance', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(20)
+    // Load top 20 memories (highest importance + most recent)
+    const { data: memories } = await svc
+      .from('agent_memories')
+      .select('content, type, importance')
+      .eq('user_id', userId)
+      .order('importance', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(20)
 
-      if (memories?.length) {
-        memoriesPrompt = `\n\n## Long-term Memory\n${memories.map(m => `[${m.type}] ${m.content}`).join('\n')}`
+    // Load 10 most recent projects
+    const { data: projects } = await svc
+      .from('projects')
+      .select('name, description, live_url, github_repo, tech_stack, notes, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    const memLines = memories?.length
+      ? memories.map(m => `[${m.type}] ${m.content}`)
+      : []
+
+    const projLines = projects?.length
+      ? projects.map(p => [
+          `• ${p.name}`,
+          p.description ? `  ${p.description}` : '',
+          p.live_url ? `  Live: ${p.live_url}` : '',
+          p.github_repo ? `  Repo: ${p.github_repo}` : '',
+          p.tech_stack ? `  Stack: ${p.tech_stack}` : '',
+          p.notes ? `  Notes: ${p.notes}` : '',
+        ].filter(Boolean).join('\n'))
+      : []
+
+    if (memLines.length || projLines.length) {
+      memoriesPrompt = [
+        memLines.length ? `## Long-term Memory\n${memLines.join('\n')}` : '',
+        projLines.length ? `## Past Projects (${projects.length})\n${projLines.join('\n\n')}` : '',
+      ].filter(Boolean).join('\n\n')
+    }
+
+    // Load skills assigned to this agent
+    const { data: agentSkillRows } = await svc
+      .from('agent_skills')
+      .select('skills(id, slug, name, description, tool_definition, instructions)')
+      .eq('user_id', userId)
+      .eq('agent_id', agentId)
+
+    if (agentSkillRows?.length) {
+      for (const row of agentSkillRows) {
+        if (row.skills?.tool_definition) skillTools.push({ ...row.skills.tool_definition, _skill_id: row.skills.id, _skill_slug: row.skills.slug })
+        if (row.skills?.instructions) skillInstructions += `\n\n### Skill: ${row.skills.name}\n${row.skills.instructions}`
       }
-
-      // Load skills assigned to this agent
-      const { data: agentSkillRows } = await svc
-        .from('agent_skills')
-        .select('skills(id, slug, name, description, tool_definition, instructions)')
-        .eq('user_id', userId)
-        .eq('agent_id', agentId)
-
-      if (agentSkillRows?.length) {
-        for (const row of agentSkillRows) {
-          if (row.skills?.tool_definition) skillTools.push({ ...row.skills.tool_definition, _skill_id: row.skills.id, _skill_slug: row.skills.slug })
-          if (row.skills?.instructions) skillInstructions += `\n\n### Skill: ${row.skills.name}\n${row.skills.instructions}`
-        }
-      }
-    } catch {}
-  }
+    }
+  } catch {}
 
   const teamRoster = orgContext?.nodes
     ?.filter(n => n.id !== 'rules' && n.id !== (agent.id || agent.label))
@@ -218,8 +240,25 @@ export async function POST(req) {
     },
   }
 
+  const saveProjectTool = {
+    name: 'save_project',
+    description: 'Save a completed project to the workspace memory. Call this immediately after deploying something or completing a major milestone. It persists across all future sessions.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Short project name (e.g. "Landing Page for AcmeCo")' },
+        description: { type: 'string', description: 'What this project does in 1-2 sentences' },
+        live_url: { type: 'string', description: 'Live URL if deployed (e.g. https://acmeco.vercel.app)' },
+        github_repo: { type: 'string', description: 'GitHub repo URL if pushed' },
+        tech_stack: { type: 'string', description: 'Technologies used (e.g. "Next.js, Supabase, Vercel")' },
+        notes: { type: 'string', description: 'Any important notes for future reference' },
+      },
+      required: ['name'],
+    },
+  }
+
   const baseTools = isTopAgent ? managerTools : implementerTools
-  const tools = [...baseTools, messageAgentTool, rememberTool, recallLogTool, ...skillTools]
+  const tools = [...baseTools, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, ...skillTools]
 
   // ── System prompt ─────────────────────────────────────────────────────────
   const globalRules = rules
@@ -376,7 +415,7 @@ DO NOT attempt npm install, git push, or running a server.`) : ''
 
     // 8. Autonomy directive
     `You are fully autonomous. Be direct and decisive. No hedging, no asking for permission.
-Use remember to save important facts. Use recall_log to review past work.
+Use remember to save important facts. Use save_project after every deployment (name, live_url, github_repo). Use recall_log to review past work.
 Use message_agent to consult a peer directly. Use delegate_task to assign implementation work.`,
   ].filter(Boolean).join('\n\n')
 
@@ -673,7 +712,6 @@ Use message_agent to consult a peer directly. Use delegate_task to assign implem
       return lastReply.slice(0, 5000) || 'No reply.'
 
     } else if (name === 'remember') {
-      if (!userId) return 'Memory not saved — no active user session.'
       try {
         const svc = createServiceClient()
         await svc.from('agent_memories').insert({
@@ -689,8 +727,26 @@ Use message_agent to consult a peer directly. Use delegate_task to assign implem
         return `Error saving memory: ${err.message}`
       }
 
+    } else if (name === 'save_project') {
+      try {
+        const svc = createServiceClient()
+        const row = {
+          name: input.name,
+          description: input.description || null,
+          live_url: input.live_url || null,
+          github_repo: input.github_repo || null,
+          tech_stack: input.tech_stack || null,
+          notes: input.notes || null,
+        }
+        await svc.from('projects').insert(row)
+        const summary = [input.name, input.live_url, input.github_repo].filter(Boolean).join(' | ')
+        send(`\n\n📁 **Project saved:** ${summary}`)
+        return `Project "${input.name}" saved to workspace memory.`
+      } catch (err) {
+        return `Error saving project: ${err.message}`
+      }
+
     } else if (name === 'recall_log') {
-      if (!userId) return 'No active user session.'
       try {
         const svc = createServiceClient()
         const date = input.date || new Date().toISOString().slice(0, 10)
