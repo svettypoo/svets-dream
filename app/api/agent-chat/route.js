@@ -29,7 +29,7 @@ async function getFeatures() {
 }
 
 export async function POST(req) {
-  const { agent, messages, orgContext, rules, _delegationDepth = 0, workspaceId, quickMode } = await req.json()
+  const { agent, messages, orgContext, rules, _delegationDepth = 0, workspaceId, quickMode, tokenBudget } = await req.json()
   const featuresContext = await getFeatures()
 
   // On Vercel serverless, HOME=/var/task which is read-only. Use /tmp for all writes.
@@ -165,6 +165,7 @@ export async function POST(req) {
         properties: {
           to: { type: 'string', description: 'Agent label or id to assign to (e.g. "Backend Programmer", "UI Agent")' },
           task: { type: 'string', description: 'Full task: what to build, what files to read first, what tools to use, what to deliver back' },
+          tokenBudget: { type: 'integer', description: 'Optional max tokens this sub-agent may spend. Exceeded budget triggers a warning. Default: unlimited.' },
         },
         required: ['to', 'task'],
       },
@@ -587,8 +588,74 @@ export async function POST(req) {
     },
   }
 
+  // ── OpenClaw feature tools ─────────────────────────────────────────────────
+  const searchMemoryTool = {
+    name: 'search_memory',
+    description: 'Search your long-term memory for facts, preferences, or decisions matching a keyword. Use this before starting work to surface relevant past context.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keyword or phrase to find in memory' },
+        limit: { type: 'integer', minimum: 1, maximum: 20, description: 'Max results (default 10)' },
+      },
+      required: ['query'],
+    },
+  }
+
+  const blackboardReadTool = {
+    name: 'blackboard_read',
+    description: 'Read a shared value from the agent blackboard for this workspace run. The blackboard is a shared key-value store all agents in a run can read and write. Use to access findings from other agents (e.g. "brand_colors" set by UI Agent).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Key to read (e.g. "brand_colors", "api_endpoint", "approved_design")' },
+      },
+      required: ['key'],
+    },
+  }
+
+  const blackboardWriteTool = {
+    name: 'blackboard_write',
+    description: 'Write a shared value to the agent blackboard. Other agents in this workspace can read it with blackboard_read. Use to share research findings, design decisions, or intermediate state across the team.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Key to write (e.g. "brand_colors", "tech_stack", "deployment_url")' },
+        value: { description: 'Value to store (any JSON: string, object, array, number)' },
+      },
+      required: ['key', 'value'],
+    },
+  }
+
+  const requestApprovalTool = {
+    name: 'request_approval',
+    description: 'Pause and request a human decision before proceeding. Use when you reach a fork requiring user judgment: which of 2+ designs to build, whether to delete data, choosing a paid plan, or confirming a risky action. Execution pauses until the user responds.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'The decision question to ask the user' },
+        options: { type: 'array', items: { type: 'string' }, description: 'Optional list of choices (e.g. ["Option A", "Option B", "Cancel"])' },
+        context: { type: 'string', description: 'Background info to help the user decide' },
+      },
+      required: ['question'],
+    },
+  }
+
+  const structuredOutputTool = {
+    name: 'structured_output',
+    description: 'Emit a structured JSON result from your work. Use when the caller expects machine-readable output: a list of items, a config object, a color palette, analysis results, etc. The JSON will be captured and returned to whoever delegated this task.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        schema_name: { type: 'string', description: 'Name describing the output type (e.g. "product_list", "color_palette", "site_analysis")' },
+        data: { description: 'The structured data to emit (any JSON-serializable value)' },
+      },
+      required: ['schema_name', 'data'],
+    },
+  }
+
   const baseTools = isTopAgent ? managerTools : implementerTools
-  const tools = [...baseTools, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, ...skillTools]
+  const tools = [...baseTools, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, searchMemoryTool, blackboardReadTool, blackboardWriteTool, requestApprovalTool, structuredOutputTool, ...skillTools]
 
   // ── System prompt ─────────────────────────────────────────────────────────
   const globalRules = rules
@@ -821,6 +888,23 @@ Never skip these. The user is watching and needs to know you're working.`,
     })
   }
 
+  // ── Artifact registry ─────────────────────────────────────────────────────
+  // Auto-logs all files written, URLs deployed, emails sent to agent_artifacts table
+  async function logArtifact(type, pathOrUrl, metadata = {}) {
+    try {
+      const svc = createServiceClient()
+      await svc.from('agent_artifacts').insert({
+        user_id: userId,
+        workspace_id: workspaceId || 'global',
+        agent_id: agentId,
+        type,
+        path: (type === 'file' || type === 'html' || type === 'structured_output') ? String(pathOrUrl) : null,
+        url: (type === 'deploy' || type === 'email' || type === 'sms') ? String(pathOrUrl) : null,
+        metadata,
+      })
+    } catch {} // non-fatal
+  }
+
   // ── Tool executor ─────────────────────────────────────────────────────────
   async function executeTool(name, input, send) {
     if (name === 'delegate_task') {
@@ -873,6 +957,7 @@ Never skip these. The user is watching and needs to know you're working.`,
             rules,
             _delegationDepth: _delegationDepth + 1,
             workspaceId,
+            tokenBudget: input.tokenBudget || null,
           }),
         })
         const reader = res.body.getReader()
@@ -891,6 +976,13 @@ Never skip these. The user is watching and needs to know you're working.`,
 
       send(`\n\n<!--agent-idle:${targetAgent.id}-->\n`)
       send(`\n\n${divider}\n✓ **${targetAgent.label} → ${agent.label}:** Complete\n${divider}\n\n`)
+      // Extract token budget usage from output markers
+      const tokenMatch = subOutput.match(/<!--TOKEN_USAGE:(\d+)-->/)
+      const tokensUsed = tokenMatch ? parseInt(tokenMatch[1]) : null
+      if (input.tokenBudget && tokensUsed) {
+        const remaining = input.tokenBudget - tokensUsed
+        if (remaining < 0) send(`\n\n⚠️ **Token budget exceeded** by ${-remaining} tokens (budget: ${input.tokenBudget}, used: ${tokensUsed})`)
+      }
       return subOutput.slice(0, 5000) || 'Task complete.'
 
     } else if (name === 'read_files') {
@@ -919,6 +1011,7 @@ Never skip these. The user is watching and needs to know you're working.`,
         const escaped = Buffer.from(htmlContent).toString('base64')
         send(`\n\n<!--PREVIEW_HTML:${escaped}-->`)
         send(`\n\n<!--FILE_ENTRY:${JSON.stringify({ path: input.path, content: htmlContent.slice(0, 2400) })}-->`)
+        logArtifact('html', input.path, { size: htmlContent.length }).catch(() => {})
         return `HTML website written to ${input.path} (${htmlContent.length} chars). Preview will display automatically.`
       } catch (err) {
         send(`\n\n❌ ${err.message}`)
@@ -944,6 +1037,7 @@ Never skip these. The user is watching and needs to know you're working.`,
           send(`\n\n<!--PREVIEW_HTML:${escaped}-->`)
         }
         send(`\n\n<!--FILE_ENTRY:${JSON.stringify({ path: input.path, content: (input.content || '').slice(0, 2400) })}-->`)
+        logArtifact('file', input.path, { size: input.content.length }).catch(() => {})
         return `Written: ${input.path} (${input.content.length} chars)`
       } catch (err) {
         send(`\n\n❌ ${err.message}`)
@@ -1049,6 +1143,7 @@ Never skip these. The user is watching and needs to know you're working.`,
         const result = await res.json()
         if (result.id) {
           send(`\n\n✅ Email sent (id: ${result.id})`)
+          logArtifact('email', `mailto:${input.to}`, { subject: input.subject, resend_id: result.id }).catch(() => {})
           return `Email sent successfully. ID: ${result.id}`
         } else {
           send(`\n\n❌ Email failed: ${result.message || JSON.stringify(result)}`)
@@ -1549,19 +1644,137 @@ Never skip these. The user is watching and needs to know you're working.`,
             const url = urlMatch[0].replace(/[.,;)'"]+$/, '')
             send(`\n\n🎉 **Deployed:** [${url}](${url})`)
             send(`\n\n<!--PREVIEW_URL:${url}-->`)
+            logArtifact('deploy', url, { platform: 'vercel' }).catch(() => {})
           }
           return out.slice(0, 2000)
         } else if (platform === 'railway') {
           const r = await runBash(`railway up --detach 2>&1`, wsHome)
           const out = [r.stdout, r.stderr].filter(Boolean).join('\n').trim()
           const urlMatch = out.match(/https:\/\/[\w.-]+\.up\.railway\.app[\S]*/i)
-          if (urlMatch) send(`\n\n🎉 **Deployed:** [${urlMatch[0]}](${urlMatch[0]})`)
+          if (urlMatch) {
+            send(`\n\n🎉 **Deployed:** [${urlMatch[0]}](${urlMatch[0]})`)
+            logArtifact('deploy', urlMatch[0], { platform: 'railway' }).catch(() => {})
+          }
           return out.slice(0, 2000)
         }
         return `Unknown platform: ${platform}`
       } catch (err) {
         send(`\n\n❌ Deploy error: ${err.message}`)
         return `Error: ${err.message}`
+      }
+    }
+
+    // ── Feature 1: Semantic memory search ─────────────────────────────────────
+    } else if (name === 'search_memory') {
+      try {
+        const svc = createServiceClient()
+        const query = (input.query || '').trim()
+        const limit = Math.min(input.limit || 10, 20)
+        const { data } = await svc
+          .from('agent_memories')
+          .select('content, type, importance, created_at')
+          .eq('user_id', userId)
+          .ilike('content', `%${query}%`)
+          .order('importance', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(limit)
+        if (!data?.length) return `No memories found matching "${query}".`
+        const results = data.map(m => `[${m.type}, importance:${m.importance}] ${m.content}`)
+        const out = results.join('\n')
+        send(`\n\n🧠 **Memory search:** ${data.length} result(s) for "${query}"`)
+        return out
+      } catch (err) {
+        return `Error searching memory: ${err.message}`
+      }
+
+    // ── Feature 3: Shared agent blackboard ────────────────────────────────────
+    } else if (name === 'blackboard_read') {
+      try {
+        const svc = createServiceClient()
+        const wsId = workspaceId || 'global'
+        const { data } = await svc
+          .from('agent_blackboard')
+          .select('value, updated_at')
+          .eq('user_id', userId)
+          .eq('workspace_id', wsId)
+          .eq('key', input.key)
+          .maybeSingle()
+        if (!data) return `Blackboard key "${input.key}" not found.`
+        send(`\n\n📋 **Blackboard read:** \`${input.key}\` = ${JSON.stringify(data.value).slice(0, 120)}`)
+        return JSON.stringify(data.value)
+      } catch (err) {
+        return `Blackboard read error: ${err.message}`
+      }
+
+    } else if (name === 'blackboard_write') {
+      try {
+        const svc = createServiceClient()
+        const wsId = workspaceId || 'global'
+        await svc.from('agent_blackboard').upsert({
+          user_id: userId,
+          workspace_id: wsId,
+          key: input.key,
+          value: input.value,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,workspace_id,key' })
+        send(`\n\n📋 **Blackboard write:** \`${input.key}\` = ${JSON.stringify(input.value).slice(0, 120)}`)
+        return `Written to blackboard: ${input.key}`
+      } catch (err) {
+        return `Blackboard write error: ${err.message}`
+      }
+
+    // ── Feature 4: Human-in-the-loop pauses ───────────────────────────────────
+    } else if (name === 'request_approval') {
+      try {
+        const svc = createServiceClient()
+        const approvalId = `appr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+        await svc.from('pending_approvals').insert({
+          id: approvalId,
+          user_id: userId,
+          workspace_id: workspaceId || 'global',
+          agent_id: agentId,
+          question: input.question,
+          context: input.context || null,
+          options: input.options || null,
+          status: 'pending',
+        })
+        // Emit UI marker
+        const payload = JSON.stringify({ id: approvalId, question: input.question, options: input.options || [], context: input.context || '' })
+        send(`\n\n⏸️ **Approval Required**\n\n**${input.question}**`)
+        if (input.options?.length) send(`\n\nChoices: ${input.options.map((o, i) => `**${i + 1}.** ${o}`).join(' | ')}`)
+        if (input.context) send(`\n\n*${input.context}*`)
+        send(`\n\n<!--APPROVAL_REQUEST:${payload}-->`)
+        // Poll for user response (up to 5 minutes, every 5 seconds)
+        let response = null
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 5000))
+          const { data } = await svc.from('pending_approvals').select('status, response').eq('id', approvalId).maybeSingle()
+          if (data?.status === 'approved' || data?.status === 'rejected') {
+            response = data
+            break
+          }
+        }
+        if (!response) {
+          await svc.from('pending_approvals').update({ status: 'timeout' }).eq('id', approvalId)
+          return 'Approval timed out after 5 minutes. Proceeding with most conservative option.'
+        }
+        send(`\n\n✅ **User responded:** ${response.response || response.status}`)
+        return `User decision: ${response.status} — ${response.response || ''}`
+      } catch (err) {
+        return `Approval error: ${err.message}`
+      }
+
+    // ── Feature 6: Structured output enforcement ──────────────────────────────
+    } else if (name === 'structured_output') {
+      try {
+        const pretty = JSON.stringify(input.data, null, 2).slice(0, 3000)
+        send(`\n\n📊 **Structured output** (\`${input.schema_name}\`):\n\`\`\`json\n${pretty}\n\`\`\``)
+        const payload = JSON.stringify({ schema: input.schema_name, data: input.data })
+        send(`\n\n<!--STRUCTURED_OUTPUT:${payload}-->`)
+        logArtifact('structured_output', input.schema_name, { data: input.data }).catch(() => {})
+        return `Structured output emitted: ${input.schema_name} (${JSON.stringify(input.data).length} chars)`
+      } catch (err) {
+        return `Structured output error: ${err.message}`
       }
     }
 
@@ -1617,6 +1830,29 @@ Never skip these. The user is watching and needs to know you're working.`,
           }
         }
         loopMessages = normalized
+
+        // ── Feature 2: Persistent agent sessions ──────────────────────────────
+        // Load prior session history so agents remember cross-conversation context
+        if (workspaceId && _delegationDepth === 0 && messages.length === 1) {
+          try {
+            const svc = createServiceClient()
+            const { data: session } = await svc
+              .from('agent_sessions')
+              .select('messages')
+              .eq('user_id', userId)
+              .eq('workspace_id', workspaceId)
+              .eq('agent_id', agentId)
+              .maybeSingle()
+            if (session?.messages?.length > 1) {
+              // Prepend last 16 messages as context (up to 8 prior pairs)
+              const history = session.messages.slice(-16).filter(m =>
+                typeof m.content === 'string' // keep only simple text, not tool results
+              )
+              if (history.length > 0) loopMessages = [...history, ...loopMessages]
+              while (loopMessages.length > 0 && loopMessages[0].role !== 'user') loopMessages.shift()
+            }
+          } catch {}
+        }
 
         let totalInputTokens = 0, totalOutputTokens = 0
 
@@ -1701,6 +1937,14 @@ Never skip these. The user is watching and needs to know you're working.`,
           loopMessages.push({ role: 'user', content: toolResults })
         }
 
+        // ── Feature 7: Token budget reporting ─────────────────────────────────
+        const totalTokens = totalInputTokens + totalOutputTokens
+        if (tokenBudget && totalTokens > tokenBudget) {
+          send(`\n\n⚠️ **Token budget exceeded:** used ${totalTokens.toLocaleString()} (budget: ${tokenBudget.toLocaleString()})`)
+        }
+        // Emit token usage marker so parent delegate_task can track it
+        send(`\n\n<!--TOKEN_USAGE:${totalTokens}-->`)
+
         if (userId) {
           await recordTransaction({
             userId,
@@ -1714,6 +1958,26 @@ Never skip these. The user is watching and needs to know you're working.`,
           // Append to daily log
           const userMsg = messages[messages.length - 1]?.content?.slice(0, 200) || 'task'
           await appendToLog(`${agent.label} handled: "${userMsg}" (${totalInputTokens}in/${totalOutputTokens}out tokens)`).catch(() => {})
+        }
+
+        // ── Feature 2: Save persistent session ────────────────────────────────
+        if (workspaceId && _delegationDepth === 0) {
+          try {
+            const svc = createServiceClient()
+            // Save last 20 messages; only keep text-based ones (not tool result arrays)
+            const sessionMessages = loopMessages.slice(-20)
+              .filter(m => typeof m.content === 'string')
+              .map(m => ({ role: m.role, content: m.content.slice(0, 4000) }))
+            if (sessionMessages.length > 0) {
+              await svc.from('agent_sessions').upsert({
+                user_id: userId,
+                workspace_id: workspaceId,
+                agent_id: agentId,
+                messages: sessionMessages,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'user_id,workspace_id,agent_id' })
+            }
+          } catch {}
         }
 
         controller.close()
