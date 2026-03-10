@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["git", "python311", "curl", "bash"]
+
+[phases.install]
+cmds = [
+  "npm install",
+  "npm install -g vercel @railway/cli"
+]
+
+[start]
+cmd = "node setup.js && node server.js"
