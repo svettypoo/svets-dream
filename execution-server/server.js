@@ -554,6 +554,340 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // POST /forge/assemble — smart deterministic app scaffold with live streaming
+  // 1. Haiku extracts entities/nav/colors/copy from description (~1-2s)
+  // 2. Each block generates its files using that config (deterministic, instant)
+  // 3. Streams NDJSON events: block_start, file_write, install_line, complete
+  // Body: { description, appName, blocks: string[], workspaceId }
+  if (req.method === 'POST' && url.pathname === '/forge/assemble') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      let parsed
+      try { parsed = JSON.parse(body) } catch {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'bad json' })); return
+      }
+      const { description, appName = 'my-app', blocks = [], workspaceId } = parsed
+      const slug = appName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      const appDir = path.join(WORK_DIR, workspaceId || `forge-${Date.now()}`, slug)
+      fs.mkdirSync(appDir, { recursive: true })
+
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'X-Content-Type-Options': 'nosniff',
+      })
+
+      function emit(obj) {
+        if (!res.writableEnded) res.write(JSON.stringify(obj) + '\n')
+      }
+
+      try {
+        // ── Step 1: Haiku analysis ──────────────────────────────────────────
+        emit({ type: 'analyze_start', message: 'Reading your description…' })
+
+        const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || ''
+        let config = {}
+        if (ANTHROPIC_KEY) {
+          const haikusPrompt = `You are a senior web app architect. Analyze this app and return ONLY valid JSON, no markdown.
+
+App name: "${appName}"
+Description: "${description}"
+Blocks being used: ${blocks.join(', ')}
+
+Return this exact JSON structure (fill in all values for this specific app):
+{
+  "slug": "${slug}",
+  "appName": "${appName}",
+  "description": "${description}",
+  "tagline": "one short sentence tagline",
+  "headline": "compelling marketing headline (under 10 words)",
+  "subheadline": "one sentence expanding on the headline (under 20 words)",
+  "ctaText": "call-to-action button text",
+  "primaryColor": "#0EA5E9",
+  "primaryColorName": "sky",
+  "entities": [
+    {
+      "name": "booking",
+      "plural": "bookings",
+      "label": "Bookings",
+      "fields": ["id", "guest_name", "check_in", "check_out", "status", "amount"],
+      "required": ["guest_name", "check_in"],
+      "statusValues": ["pending", "confirmed", "cancelled"]
+    }
+  ],
+  "navItems": [
+    { "href": "/dashboard", "label": "Overview", "icon": "LayoutDashboard" },
+    { "href": "/dashboard/bookings", "label": "Bookings", "icon": "Calendar" }
+  ],
+  "aiSystemPrompt": "You are a helpful assistant for ${appName}. Help users with questions about [relevant domain].",
+  "aiChatPlaceholder": "Ask about your [entities]…"
+}`
+
+          const haikusPayload = JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 2048,
+            messages: [{ role: 'user', content: haikusPrompt }],
+          })
+
+          config = await new Promise(resolve => {
+            const https = require('https')
+            const r = https.request({
+              hostname: 'api.anthropic.com',
+              path: '/v1/messages',
+              method: 'POST',
+              headers: {
+                'x-api-key': ANTHROPIC_KEY,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(haikusPayload),
+              },
+            }, res2 => {
+              let d = ''
+              res2.on('data', c => d += c)
+              res2.on('end', () => {
+                try {
+                  const body2 = JSON.parse(d)
+                  const text = body2?.content?.[0]?.text || '{}'
+                  const jsonMatch = text.match(/\{[\s\S]*\}/)
+                  resolve(jsonMatch ? JSON.parse(jsonMatch[0]) : {})
+                } catch { resolve({}) }
+              })
+            })
+            r.on('error', () => resolve({}))
+            r.write(haikusPayload)
+            r.end()
+          })
+        }
+
+        // Fallback config if Haiku unavailable
+        config = {
+          slug,
+          appName,
+          description,
+          tagline: `${appName} — built with Forge`,
+          headline: `The smarter way to manage ${appName}`,
+          subheadline: `Everything you need, nothing you don\'t.`,
+          ctaText: 'Get started free',
+          primaryColor: '#6366f1',
+          primaryColorName: 'indigo',
+          entities: [{ name: 'item', plural: 'items', label: 'Items', fields: ['id', 'name', 'status', 'created_at'], required: ['name'], statusValues: ['active', 'inactive'] }],
+          navItems: [
+            { href: '/dashboard', label: 'Overview', icon: 'LayoutDashboard' },
+            { href: '/dashboard/items', label: 'Items', icon: 'List' },
+          ],
+          aiSystemPrompt: `You are a helpful assistant for ${appName}.`,
+          aiChatPlaceholder: 'Ask me anything…',
+          ...config,
+        }
+
+        emit({ type: 'analyze_done', config })
+
+        // ── Helper: write a file and emit event ────────────────────────────
+        function writeFile(relPath, content) {
+          const fullPath = path.join(appDir, relPath)
+          fs.mkdirSync(path.dirname(fullPath), { recursive: true })
+          fs.writeFileSync(fullPath, content, 'utf8')
+          emit({ type: 'file_write', path: relPath, preview: content.slice(0, 200) })
+        }
+
+        // ── Helper: substitute all config tokens in a string ───────────────
+        function sub(str) {
+          return str
+            .replace(/\{\{APP_NAME\}\}/g, config.appName)
+            .replace(/\{\{APP_SLUG\}\}/g, config.slug)
+            .replace(/\{\{APP_DESCRIPTION\}\}/g, config.description)
+            .replace(/\{\{APP_TAGLINE\}\}/g, config.tagline)
+            .replace(/\{\{HEADLINE\}\}/g, config.headline)
+            .replace(/\{\{SUBHEADLINE\}\}/g, config.subheadline)
+            .replace(/\{\{CTA_TEXT\}\}/g, config.ctaText || 'Get started')
+            .replace(/\{\{PRIMARY_COLOR\}\}/g, config.primaryColor)
+            .replace(/\{\{PRIMARY_COLOR_NAME\}\}/g, config.primaryColorName)
+            .replace(/\{\{AI_SYSTEM_PROMPT\}\}/g, config.aiSystemPrompt)
+            .replace(/\{\{AI_CHAT_PLACEHOLDER\}\}/g, config.aiChatPlaceholder)
+        }
+
+        // ── Helper: copy a block file with substitution ────────────────────
+        function copyBlockFile(blockId, srcRel, destRel) {
+          const srcPath = path.join(BLOCKS_SRC, blockId, srcRel)
+          if (!fs.existsSync(srcPath)) return
+          const content = sub(fs.readFileSync(srcPath, 'utf8'))
+          writeFile(destRel || srcRel, content)
+        }
+
+        // ── Block assemblers ───────────────────────────────────────────────
+        const ASSEMBLERS = {
+
+          'next-shell': () => {
+            emit({ type: 'block_start', id: 'next-shell', name: 'Next.js Shell', icon: '⚡' })
+            const pkg = {
+              name: config.slug,
+              version: '0.1.0',
+              private: true,
+              scripts: { dev: 'next dev', build: 'next build', start: 'next start' },
+              dependencies: {
+                next: '14.2.3', react: '^18', 'react-dom': '^18',
+                '@supabase/supabase-js': '^2.39.0', '@supabase/ssr': '^0.3.0',
+                '@anthropic-ai/sdk': '^0.20.0',
+                'lucide-react': '^0.344.0', clsx: '^2.1.0',
+              },
+              devDependencies: { tailwindcss: '^3.4.1', postcss: '^8', autoprefixer: '^10.0.1' },
+            }
+            writeFile('package.json', JSON.stringify(pkg, null, 2))
+            writeFile('next.config.js', `/** @type {import('next').NextConfig} */\nmodule.exports = { images: { remotePatterns: [{ protocol: 'https', hostname: '*.supabase.co' }] } }\n`)
+            writeFile('tailwind.config.js', `/** @type {import('tailwindcss').Config} */\nmodule.exports = {\n  content: ['./app/**/*.{js,jsx}', './components/**/*.{js,jsx}'],\n  theme: { extend: {} },\n  plugins: [],\n}\n`)
+            writeFile('postcss.config.js', `module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } }\n`)
+            writeFile('app/globals.css', sub(fs.readFileSync(path.join(BLOCKS_SRC, 'next-shell', 'app', 'globals.css'), 'utf8')))
+            writeFile('app/layout.js', `import './globals.css'\nexport const metadata = { title: '${config.appName}', description: '${config.description}' }\nexport default function RootLayout({ children }) {\n  return <html lang="en"><body className="min-h-screen bg-gray-50 text-gray-900 antialiased">{children}</body></html>\n}\n`)
+            emit({ type: 'block_done', id: 'next-shell' })
+          },
+
+          'supabase': () => {
+            emit({ type: 'block_start', id: 'supabase', name: 'Supabase', icon: '🗄️' })
+            copyBlockFile('supabase', 'lib/supabase-browser.js', 'lib/supabase-browser.js')
+            copyBlockFile('supabase', 'lib/supabase-server.js', 'lib/supabase-server.js')
+            copyBlockFile('supabase', 'middleware.js', 'middleware.js')
+            emit({ type: 'block_done', id: 'supabase' })
+          },
+
+          'auth-email': () => {
+            emit({ type: 'block_start', id: 'auth-email', name: 'Email Auth', icon: '🔐' })
+            copyBlockFile('auth', 'app/login/page.js', 'app/login/page.js')
+            copyBlockFile('auth', 'app/api/auth/route.js', 'app/api/auth/route.js')
+            // signup page
+            writeFile('app/signup/page.js', `'use client'\nimport { useState } from 'react'\nimport { useRouter } from 'next/navigation'\nimport { createClient } from '@/lib/supabase-browser'\n\nexport default function SignupPage() {\n  const router = useRouter()\n  const [email, setEmail] = useState('')\n  const [password, setPassword] = useState('')\n  const [loading, setLoading] = useState(false)\n  const [error, setError] = useState('')\n\n  async function handleSignup(e) {\n    e.preventDefault()\n    setLoading(true)\n    const supabase = createClient()\n    const { error } = await supabase.auth.signUp({ email, password })\n    if (error) { setError(error.message); setLoading(false) }\n    else router.push('/dashboard')\n  }\n\n  return (\n    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">\n      <div className="w-full max-w-md card">\n        <h1 className="text-2xl font-bold mb-2">Create account</h1>\n        <form onSubmit={handleSignup} className="space-y-4 mt-4">\n          <div><label className="label">Email</label><input type="email" className="input" required value={email} onChange={e=>setEmail(e.target.value)} /></div>\n          <div><label className="label">Password</label><input type="password" className="input" required value={password} onChange={e=>setPassword(e.target.value)} /></div>\n          {error && <p className="text-sm text-red-600">{error}</p>}\n          <button type="submit" disabled={loading} className="btn-primary w-full">{loading ? 'Creating…' : 'Create account'}</button>\n        </form>\n        <p className="mt-4 text-center text-sm text-gray-500">Already have an account? <a href="/login" className="text-brand-600 hover:underline">Sign in</a></p>\n      </div>\n    </div>\n  )\n}\n`)
+            emit({ type: 'block_done', id: 'auth-email' })
+          },
+
+          'dashboard-layout': () => {
+            emit({ type: 'block_start', id: 'dashboard-layout', name: 'Dashboard Layout', icon: '🧭' })
+            // Smart: generate Sidebar with actual nav items from config
+            const navLines = config.navItems.map(n =>
+              `  { href: '${n.href}', label: '${n.label}', icon: '${n.icon || 'Circle'}' },`
+            ).join('\n')
+            writeFile('components/Sidebar.jsx', `'use client'\nimport { useState } from 'react'\nimport Link from 'next/link'\nimport { usePathname } from 'next/navigation'\nimport { ${[...new Set(config.navItems.map(n => n.icon || 'Circle')), 'LogOut', 'Menu', 'X'].join(', ')} } from 'lucide-react'\n\nconst NAV = [\n${navLines}\n]\n\nexport default function Sidebar({ user }) {\n  const pathname = usePathname()\n  const [open, setOpen] = useState(false)\n  return (\n    <>\n      <button className="fixed top-4 left-4 z-50 lg:hidden p-2 rounded-lg bg-white shadow border" onClick={() => setOpen(v=>!v)}>{open ? <X size={18}/> : <Menu size={18}/>}</button>\n      {open && <div className="fixed inset-0 z-40 bg-black/30 lg:hidden" onClick={()=>setOpen(false)}/>}\n      <aside className={\`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 flex flex-col transform transition-transform duration-200 \${open?'translate-x-0':'-translate-x-full'} lg:relative lg:translate-x-0\`}>\n        <div className="h-16 flex items-center px-6 border-b border-gray-200">\n          <span className="text-lg font-bold text-brand-600">${config.appName}</span>\n        </div>\n        <nav className="flex-1 px-3 py-4 space-y-1">\n          {NAV.map(item => {\n            const active = pathname === item.href || pathname.startsWith(item.href + '/')\n            return <Link key={item.href} href={item.href} onClick={()=>setOpen(false)} className={\`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors \${active?'bg-brand-50 text-brand-700':'text-gray-600 hover:bg-gray-100'}\`}>{item.label}</Link>\n          })}\n        </nav>\n        {user && <div className="border-t p-4"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700">{user.email?.[0]?.toUpperCase()}</div><p className="text-xs font-medium text-gray-900 truncate flex-1">{user.email}</p></div></div>}\n      </aside>\n    </>\n  )\n}\n`)
+            writeFile('app/dashboard/layout.js', `import { createClient } from '@/lib/supabase-server'\nimport { redirect } from 'next/navigation'\nimport Sidebar from '@/components/Sidebar'\n\nexport default async function DashboardLayout({ children }) {\n  const supabase = createClient()\n  const { data: { user } } = await supabase.auth.getUser()\n  if (!user) redirect('/login')\n  return (\n    <div className="flex h-screen overflow-hidden bg-gray-50">\n      <Sidebar user={user} />\n      <main className="flex-1 overflow-y-auto"><div className="p-6 lg:p-8 max-w-7xl mx-auto">{children}</div></main>\n    </div>\n  )\n}\n`)
+            writeFile('app/dashboard/page.js', `import { createClient } from '@/lib/supabase-server'\n\nexport default async function DashboardPage() {\n  const supabase = createClient()\n  const { data: { user } } = await supabase.auth.getUser()\n  return (\n    <div>\n      <h1 className="text-2xl font-bold text-gray-900 mb-1">Welcome back 👋</h1>\n      <p className="text-gray-500 text-sm mb-8">{user?.email}</p>\n      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">\n        ${config.entities.map(e => `<div className="card"><h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">${e.label}</h3><p className="text-3xl font-bold text-gray-900 mt-1">—</p></div>`).join('\n        ')}\n      </div>\n    </div>\n  )\n}\n`)
+            emit({ type: 'block_done', id: 'dashboard-layout' })
+          },
+
+          'crud-table': () => {
+            emit({ type: 'block_start', id: 'crud-table', name: 'CRUD Tables', icon: '📋' })
+            // Smart: copy the DataTable component then generate one page per entity
+            copyBlockFile('crud', 'components/DataTable.jsx', 'components/DataTable.jsx')
+            for (const entity of config.entities) {
+              const cols = entity.fields.filter(f => f !== 'id').map(f =>
+                `  { key: '${f}', label: '${f.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}' },`
+              ).join('\n')
+              writeFile(`app/dashboard/${entity.plural}/page.js`, `'use client'\nimport { useState, useEffect } from 'react'\nimport DataTable from '@/components/DataTable'\n\nconst COLUMNS = [\n${cols}\n]\n\nexport default function ${entity.label}Page() {\n  const [rows, setRows] = useState([])\n  const [loading, setLoading] = useState(true)\n\n  async function load() {\n    const res = await fetch('/api/${entity.plural}')\n    const data = await res.json()\n    if (Array.isArray(data)) setRows(data)\n    setLoading(false)\n  }\n\n  useEffect(() => { load() }, [])\n\n  async function handleDelete(row) {\n    if (!confirm('Delete this ${entity.name}?')) return\n    await fetch(\`/api/${entity.plural}?id=\${row.id}\`, { method: 'DELETE' })\n    load()\n  }\n\n  return (\n    <div>\n      <h1 className="text-2xl font-bold text-gray-900 mb-6">${entity.label}</h1>\n      <DataTable\n        title="${entity.label}"\n        columns={COLUMNS}\n        rows={rows}\n        loading={loading}\n        onAdd={() => alert('Add modal coming soon')}\n        onDelete={handleDelete}\n      />\n    </div>\n  )\n}\n`)
+            }
+            emit({ type: 'block_done', id: 'crud-table' })
+          },
+
+          'crud-api': () => {
+            emit({ type: 'block_start', id: 'crud-api', name: 'CRUD APIs', icon: '🔌' })
+            // Smart: generate one API route per entity
+            for (const entity of config.entities) {
+              const allowedCols = JSON.stringify(entity.fields.filter(f => f !== 'id'))
+              const requiredCols = JSON.stringify(entity.required || [entity.fields[1] || 'name'])
+              writeFile(`app/api/${entity.plural}/route.js`, `import { createAdminClient } from '@/lib/supabase-server'\nimport { NextResponse } from 'next/server'\n\nconst TABLE = '${entity.plural}'\nconst COLS = ${allowedCols}\nconst REQUIRED = ${requiredCols}\n\nexport async function GET(req) {\n  const supabase = createAdminClient()\n  const { data, error } = await supabase.from(TABLE).select('*').order('created_at', { ascending: false }).limit(200)\n  if (error) return NextResponse.json({ error: error.message }, { status: 500 })\n  return NextResponse.json(data)\n}\n\nexport async function POST(req) {\n  const body = await req.json()\n  for (const f of REQUIRED) { if (!body[f]) return NextResponse.json({ error: \`\${f} is required\` }, { status: 400 }) }\n  const row = Object.fromEntries(COLS.filter(k => body[k] !== undefined).map(k => [k, body[k]]))\n  const { data, error } = await createAdminClient().from(TABLE).insert(row).select().single()\n  if (error) return NextResponse.json({ error: error.message }, { status: 500 })\n  return NextResponse.json(data, { status: 201 })\n}\n\nexport async function PATCH(req) {\n  const { id, ...updates } = await req.json()\n  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })\n  const row = Object.fromEntries(COLS.filter(k => updates[k] !== undefined).map(k => [k, updates[k]]))\n  const { data, error } = await createAdminClient().from(TABLE).update(row).eq('id', id).select().single()\n  if (error) return NextResponse.json({ error: error.message }, { status: 500 })\n  return NextResponse.json(data)\n}\n\nexport async function DELETE(req) {\n  const id = new URL(req.url).searchParams.get('id')\n  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })\n  const { error } = await createAdminClient().from(TABLE).delete().eq('id', id)\n  if (error) return NextResponse.json({ error: error.message }, { status: 500 })\n  return NextResponse.json({ ok: true })\n}\n`)
+            }
+            emit({ type: 'block_done', id: 'crud-api' })
+          },
+
+          'ai-chat': () => {
+            emit({ type: 'block_start', id: 'ai-chat', name: 'AI Chat', icon: '🤖' })
+            // Smart: inject generated system prompt + placeholder
+            const comp = fs.readFileSync(path.join(BLOCKS_SRC, 'ai-chat', 'components', 'AiChat.jsx'), 'utf8')
+            writeFile('components/AiChat.jsx', comp)
+            writeFile('app/api/ai/route.js', `import Anthropic from '@anthropic-ai/sdk'\nconst client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })\nexport async function POST(req) {\n  const { messages, systemPrompt = '${config.aiSystemPrompt}' } = await req.json()\n  const stream = await client.messages.stream({ model: 'claude-sonnet-4-6', max_tokens: 4096, system: systemPrompt, messages })\n  const enc = new TextEncoder()\n  return new Response(new ReadableStream({ async start(c) { for await (const ch of stream) { if (ch.type==='content_block_delta'&&ch.delta.type==='text_delta') c.enqueue(enc.encode(ch.delta.text)) } c.close() } }), { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })\n}\n`)
+            writeFile('app/dashboard/assistant/page.js', `import AiChat from '@/components/AiChat'\nexport default function AssistantPage() {\n  return <div><h1 className="text-2xl font-bold text-gray-900 mb-6">AI Assistant</h1><div className="max-w-3xl"><AiChat systemPrompt="${config.aiSystemPrompt}" placeholder="${config.aiChatPlaceholder}" /></div></div>\n}\n`)
+            emit({ type: 'block_done', id: 'ai-chat' })
+          },
+
+          'landing': () => {
+            emit({ type: 'block_start', id: 'landing', name: 'Landing Page', icon: '🏠' })
+            writeFile('app/page.js', `import Link from 'next/link'\nexport default function LandingPage() {\n  return (\n    <div className="min-h-screen bg-white">\n      <nav className="flex items-center justify-between px-8 py-5 border-b border-gray-100">\n        <span className="text-xl font-bold text-brand-600">${config.appName}</span>\n        <div className="flex items-center gap-4">\n          <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">Sign in</Link>\n          <Link href="/signup" className="btn-primary text-sm">Get started →</Link>\n        </div>\n      </nav>\n      <section className="text-center py-24 px-6 bg-gradient-to-br from-brand-900 via-brand-800 to-brand-700 text-white">\n        <p className="text-brand-300 text-sm font-semibold uppercase tracking-widest mb-4">${config.tagline}</p>\n        <h1 className="text-5xl font-extrabold mb-6 leading-tight">${config.headline}</h1>\n        <p className="text-xl text-brand-200 max-w-2xl mx-auto mb-10">${config.subheadline}</p>\n        <Link href="/signup" className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-white text-brand-700 font-semibold text-lg hover:bg-brand-50 transition shadow-lg">${config.ctaText} →</Link>\n      </section>\n    </div>\n  )\n}\n`)
+            emit({ type: 'block_done', id: 'landing' })
+          },
+
+          'stripe': () => {
+            emit({ type: 'block_start', id: 'stripe', name: 'Stripe', icon: '💳' })
+            copyBlockFile('stripe', 'lib/stripe.js', 'lib/stripe.js')
+            writeFile('app/api/stripe/route.js', `import { createPaymentIntent, constructWebhookEvent } from '@/lib/stripe'\nimport { NextResponse } from 'next/server'\n\nexport async function POST(req) {\n  const { amount, currency = 'usd', metadata = {} } = await req.json()\n  if (!amount) return NextResponse.json({ error: 'amount required' }, { status: 400 })\n  const pi = await createPaymentIntent(Math.round(amount * 100), currency, metadata)\n  return NextResponse.json({ clientSecret: pi.client_secret })\n}\n`)
+            emit({ type: 'block_done', id: 'stripe' })
+          },
+
+          'email-resend': () => {
+            emit({ type: 'block_start', id: 'email-resend', name: 'Email', icon: '✉️' })
+            writeFile('lib/resend.js', `import { Resend } from 'resend'\nconst resend = new Resend(process.env.RESEND_API_KEY)\nexport async function sendEmail({ to, subject, html, from }) {\n  return resend.emails.send({ from: from || process.env.RESEND_FROM || 'noreply@yourdomain.com', to, subject, html })\n}\n`)
+            writeFile('app/api/email/route.js', `import { sendEmail } from '@/lib/resend'\nimport { NextResponse } from 'next/server'\nexport async function POST(req) {\n  const { to, subject, html } = await req.json()\n  const result = await sendEmail({ to, subject, html })\n  return NextResponse.json(result)\n}\n`)
+            emit({ type: 'block_done', id: 'email-resend' })
+          },
+
+          'file-upload': () => {
+            emit({ type: 'block_start', id: 'file-upload', name: 'File Upload', icon: '📎' })
+            writeFile('app/api/upload/route.js', `import { createAdminClient } from '@/lib/supabase-server'\nimport { NextResponse } from 'next/server'\nexport async function POST(req) {\n  const form = await req.formData()\n  const file = form.get('file')\n  if (!file) return NextResponse.json({ error: 'no file' }, { status: 400 })\n  const bytes = await file.arrayBuffer()\n  const buffer = Buffer.from(bytes)\n  const ext = file.name.split('.').pop()\n  const fileName = \`\${Date.now()}-\${Math.random().toString(36).slice(2)}.\${ext}\`\n  const supabase = createAdminClient()\n  const { error } = await supabase.storage.from('uploads').upload(fileName, buffer, { contentType: file.type })\n  if (error) return NextResponse.json({ error: error.message }, { status: 500 })\n  const { data } = supabase.storage.from('uploads').getPublicUrl(fileName)\n  return NextResponse.json({ url: data.publicUrl })\n}\n`)
+            emit({ type: 'block_done', id: 'file-upload' })
+          },
+        }
+
+        // ── Step 2: Run selected block assemblers ──────────────────────────
+        const ordered = ['next-shell', 'supabase', 'auth-email', 'dashboard-layout', 'crud-table', 'crud-api', 'ai-chat', 'landing', 'stripe', 'email-resend', 'file-upload']
+        for (const blockId of ordered) {
+          if (blocks.includes(blockId) && ASSEMBLERS[blockId]) {
+            await ASSEMBLERS[blockId]()
+            await new Promise(r => setTimeout(r, 80)) // tiny pause so client sees each block
+          }
+        }
+
+        // ── Step 3: Write .env.local template ─────────────────────────────
+        writeFile('.env.local', `# Generated by Forge — fill in your values\nNEXT_PUBLIC_SUPABASE_URL=https://xocfduqugghailalzlqy.supabase.co\nNEXT_PUBLIC_SUPABASE_ANON_KEY=\nSUPABASE_SERVICE_ROLE_KEY=\nANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}\nGEMINI_API_KEY=${process.env.GEMINI_API_KEY || ''}\nRESEND_API_KEY=\nRESEND_FROM=noreply@yourdomain.com\nSTRIPE_SECRET_KEY=\nSTRIPE_PUBLISHABLE_KEY=\nSTRIPE_WEBHOOK_SECRET=\nADMIN_PASSWORD=Partycard123*\n`)
+
+        // ── Step 4: Write Supabase schema SQL ─────────────────────────────
+        if (config.entities.length > 0) {
+          const sql = config.entities.map(e => {
+            const cols = e.fields.filter(f => f !== 'id').map(f => {
+              if (f === 'created_at' || f === 'updated_at') return `  ${f} timestamptz default now()`
+              if (f.endsWith('_at')) return `  ${f} timestamptz`
+              if (f === 'amount' || f === 'price') return `  ${f} numeric(10,2)`
+              if (f === 'status') return `  status text default '${e.statusValues?.[0] || 'active'}'`
+              return `  ${f} text`
+            }).join(',\n')
+            return `create table if not exists ${e.plural} (\n  id uuid primary key default gen_random_uuid(),\n${cols},\n  created_at timestamptz default now()\n);\nalter table ${e.plural} enable row level security;`
+          }).join('\n\n')
+          writeFile('supabase-schema.sql', `-- Generated by Forge\n-- Run this in your Supabase SQL editor\n\n${sql}\n`)
+        }
+
+        // ── Step 5: npm install ────────────────────────────────────────────
+        emit({ type: 'install_start', message: 'Installing dependencies…' })
+        await new Promise(resolve => {
+          const child = spawn('npm', ['install', '--prefer-offline', '--no-audit', '--no-fund'], {
+            cwd: appDir,
+            env: { ...process.env, HOME, FORCE_COLOR: '0' },
+          })
+          child.stdout.on('data', d => emit({ type: 'install_line', text: d.toString().trim() }))
+          child.stderr.on('data', d => {
+            const t = d.toString().trim()
+            if (t && !t.startsWith('npm warn')) emit({ type: 'install_line', text: t })
+          })
+          child.on('close', resolve)
+        })
+        emit({ type: 'install_done' })
+
+        // ── Done ───────────────────────────────────────────────────────────
+        const relPath = path.relative(WORK_DIR, appDir)
+        emit({ type: 'complete', appPath: appDir, relPath, appName: config.appName, slug: config.slug })
+
+      } catch (err) {
+        emit({ type: 'error', message: err.message })
+      }
+
+      if (!res.writableEnded) res.end()
+    })
+    return
+  }
+
   // POST /gemini — call Gemini API (text + vision)
   // Body: { prompt, imageBase64?, mimeType?, model?, maxTokens? }
   // Used for: UI analysis from screenshots, code generation, design suggestions

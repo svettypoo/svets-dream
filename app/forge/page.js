@@ -4,370 +4,327 @@ import { useState, useRef, useEffect } from 'react'
 const RAILWAY_URL = 'https://svets-dream-production.up.railway.app'
 const EXEC_TOKEN = 'svets-exec-token-2026'
 
-const BLOCKS = [
-  { id: 'next-shell',       label: 'Next.js Shell',       desc: 'package.json, layout, Tailwind', icon: '⚡', required: true },
-  { id: 'supabase',         label: 'Supabase',            desc: 'DB client, middleware',          icon: '🗄️' },
-  { id: 'auth-email',       label: 'Auth',                desc: 'Login, signup, logout',          icon: '🔐' },
-  { id: 'dashboard-layout', label: 'Dashboard Layout',   desc: 'Sidebar nav, header',            icon: '🧭' },
-  { id: 'crud-table',       label: 'CRUD Table',         desc: 'DataTable + modals',             icon: '📋' },
-  { id: 'crud-api',         label: 'CRUD API',           desc: 'REST route template',            icon: '🔌' },
-  { id: 'ai-chat',          label: 'AI Chat',            desc: 'Streaming Claude chat',          icon: '🤖' },
-  { id: 'landing',          label: 'Landing Page',       desc: 'Hero + features + CTA',          icon: '🏠' },
-  { id: 'stripe',           label: 'Stripe Payments',    desc: 'Payment intent + webhook',       icon: '💳' },
-  { id: 'file-upload',      label: 'File Upload',        desc: 'Supabase Storage',               icon: '📎' },
-  { id: 'email-resend',     label: 'Email (Resend)',     desc: 'Transactional email',            icon: '✉️' },
+const ALL_BLOCKS = [
+  { id: 'next-shell',       label: 'Next.js Shell',     desc: 'package.json, layout, Tailwind',    icon: '⚡', required: true,  color: '#f59e0b' },
+  { id: 'supabase',         label: 'Supabase',          desc: 'DB client, middleware',              icon: '🗄️', color: '#3ecf8e' },
+  { id: 'auth-email',       label: 'Auth',              desc: 'Login, signup, logout',             icon: '🔐', color: '#6366f1' },
+  { id: 'dashboard-layout', label: 'Dashboard',         desc: 'Sidebar nav, auth guard',           icon: '🧭', color: '#8b5cf6' },
+  { id: 'crud-table',       label: 'CRUD Tables',       desc: 'DataTable per entity',              icon: '📋', color: '#0ea5e9' },
+  { id: 'crud-api',         label: 'CRUD APIs',         desc: 'REST routes per entity',            icon: '🔌', color: '#06b6d4' },
+  { id: 'ai-chat',          label: 'AI Chat',           desc: 'Streaming Claude assistant',        icon: '🤖', color: '#a78bfa' },
+  { id: 'landing',          label: 'Landing Page',      desc: 'Hero, features, CTA',              icon: '🏠', color: '#22d3ee' },
+  { id: 'stripe',           label: 'Stripe',            desc: 'Payment intent + webhook',          icon: '💳', color: '#635bff' },
+  { id: 'email-resend',     label: 'Email',             desc: 'Transactional via Resend',          icon: '✉️', color: '#f97316' },
+  { id: 'file-upload',      label: 'File Upload',       desc: 'Supabase Storage',                  icon: '📎', color: '#84cc16' },
 ]
 
-const STACKS = [
-  { id: 'nextjs-supabase', label: 'Next.js + Supabase', desc: 'App Router, Tailwind, Supabase Postgres' },
-  { id: 'nextjs-sqlite',   label: 'Next.js + SQLite',   desc: 'App Router, Tailwind, lightweight SQLite' },
-  { id: 'react-express',   label: 'React + Express',    desc: 'Vite, Tailwind, Express REST API' },
-]
+const SMART_DEFAULTS = ['next-shell', 'supabase', 'auth-email', 'dashboard-layout', 'crud-table', 'crud-api']
 
 export default function ForgePage() {
   const [description, setDescription] = useState('')
   const [appName, setAppName] = useState('')
-  const [stack, setStack] = useState('nextjs-supabase')
-  const [selectedBlocks, setSelectedBlocks] = useState(new Set(['next-shell', 'supabase', 'auth-email', 'dashboard-layout']))
-  const [tab, setTab] = useState('build') // build | gemini
-  const [building, setBuilding] = useState(false)
-  const [output, setOutput] = useState('')
-  const [done, setDone] = useState(false)
-  const [workspaceId, setWorkspaceId] = useState('')
+  const [selected, setSelected] = useState(new Set(SMART_DEFAULTS))
+  const [phase, setPhase] = useState('config') // config | building | done
+  const [events, setEvents] = useState([])
+  const [blockStatus, setBlockStatus] = useState({}) // id → 'pending'|'building'|'done'
+  const [files, setFiles] = useState([]) // [{path, preview}]
+  const [installLog, setInstallLog] = useState([])
+  const [result, setResult] = useState(null)
+  const [config, setConfig] = useState(null)
   const abortRef = useRef(null)
-  const outputRef = useRef(null)
+  const filesRef = useRef(null)
+  const installRef = useRef(null)
+  const wsId = useRef(`forge-${Date.now()}-${Math.random().toString(36).slice(2,6)}`)
 
-  // Gemini UI tab state
-  const [screenshotUrl, setScreenshotUrl] = useState('')
-  const [geminiTask, setGeminiTask] = useState('analyze')
-  const [geminiContext, setGeminiContext] = useState('')
-  const [geminiLoading, setGeminiLoading] = useState(false)
-  const [geminiResult, setGeminiResult] = useState('')
-
-  useEffect(() => {
-    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight
-  }, [output])
+  useEffect(() => { filesRef.current?.scrollTo(0, 999999) }, [files])
+  useEffect(() => { installRef.current?.scrollTo(0, 999999) }, [installLog])
 
   function toggleBlock(id) {
-    if (id === 'next-shell') return // required
-    setSelectedBlocks(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+    if (id === 'next-shell') return
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
+
+  function selectPreset(ids) { setSelected(new Set(['next-shell', ...ids])) }
 
   async function handleBuild(e) {
     e.preventDefault()
-    if (!description.trim() || building) return
-    setBuilding(true)
-    setOutput('')
-    setDone(false)
+    if (!description.trim()) return
+    setPhase('building')
+    setEvents([])
+    setBlockStatus({})
+    setFiles([])
+    setInstallLog([])
+    setResult(null)
+    setConfig(null)
 
-    const wsId = `forge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    setWorkspaceId(wsId)
+    // Init all selected blocks as pending
+    const pending = {}
+    for (const id of selected) pending[id] = 'pending'
+    setBlockStatus(pending)
+
     abortRef.current = new AbortController()
 
-    const blocksStr = [...selectedBlocks].join(', ')
-    const prompt = `Scaffold a complete ${stack} app called "${appName || 'my-app'}" using these blocks: ${blocksStr}.
-
-App description: ${description}
-
-Instructions:
-1. Read /root/workspace/__BLOCKS__/manifest.json to understand available blocks
-2. Create the app at /root/workspace/${wsId}/${appName || 'my-app'}/
-3. Copy and assemble the selected block files — replace all {{APP_NAME}}, {{APP_DESCRIPTION}}, {{HEADLINE}}, {{SUBHEADLINE}}, {{APP_TAGLINE}} placeholders
-4. Customize the code to match the app description (rename tables, update nav items, adjust colors, write the actual page content)
-5. Create .env.local from the env-template block
-6. Run: cd /root/workspace/${wsId}/${appName || 'my-app'} && npm install 2>&1 | tail -5
-7. Report the final file tree and any next steps
-
-Be thorough but fast. Use blocks as starting points — customize them for this specific app.`
-
     try {
-      const res = await fetch(`${RAILWAY_URL}/agent-stream`, {
+      const res = await fetch(`${RAILWAY_URL}/forge/assemble`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
         signal: abortRef.current.signal,
-        body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], workspaceId: wsId }),
+        body: JSON.stringify({ description, appName: appName || 'my-app', blocks: [...selected], workspaceId: wsId.current }),
       })
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
+      let buf = ''
+
       while (true) {
-        const { done: d, value } = await reader.read()
-        if (d) break
-        setOutput(prev => prev + decoder.decode(value, { stream: true }))
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop()
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const ev = JSON.parse(line)
+            handleEvent(ev)
+          } catch {}
+        }
       }
-      setDone(true)
     } catch (err) {
-      if (err.name !== 'AbortError') setOutput(prev => prev + `\n\nError: ${err.message}`)
-    } finally {
-      setBuilding(false)
+      if (err.name !== 'AbortError') {
+        setEvents(prev => [...prev, { type: 'error', message: err.message }])
+      }
     }
   }
 
-  async function handleGeminiUI(e) {
-    e.preventDefault()
-    if (!screenshotUrl.trim() || geminiLoading) return
-    setGeminiLoading(true)
-    setGeminiResult('')
-
-    try {
-      // Fetch screenshot and convert to base64
-      const imgRes = await fetch(screenshotUrl)
-      const blob = await imgRes.blob()
-      const base64 = await new Promise(resolve => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result.split(',')[1])
-        reader.readAsDataURL(blob)
-      })
-
-      const res = await fetch(`${RAILWAY_URL}/gemini-ui`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
-        body: JSON.stringify({ screenshotBase64: base64, task: geminiTask, context: geminiContext }),
-      })
-      const data = await res.json()
-      setGeminiResult(data.text || data.error || 'No response')
-    } catch (err) {
-      setGeminiResult(`Error: ${err.message}`)
-    } finally {
-      setGeminiLoading(false)
+  function handleEvent(ev) {
+    setEvents(prev => [...prev, ev])
+    if (ev.type === 'analyze_done') {
+      setConfig(ev.config)
+    }
+    if (ev.type === 'block_start') {
+      setBlockStatus(prev => ({ ...prev, [ev.id]: 'building' }))
+    }
+    if (ev.type === 'block_done') {
+      setBlockStatus(prev => ({ ...prev, [ev.id]: 'done' }))
+    }
+    if (ev.type === 'file_write') {
+      setFiles(prev => [...prev, { path: ev.path, preview: ev.preview }])
+    }
+    if (ev.type === 'install_line' && ev.text) {
+      setInstallLog(prev => [...prev, ev.text])
+    }
+    if (ev.type === 'complete') {
+      setResult(ev)
+      setPhase('done')
     }
   }
+
+  const totalFiles = files.length
+  const doneBlocks = Object.values(blockStatus).filter(s => s === 'done').length
+  const totalBlocks = selected.size
+  const progress = phase === 'done' ? 100 : Math.round((doneBlocks / totalBlocks) * 85)
 
   return (
-    <div style={{ minHeight: '100vh', background: '#050d1a', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: '#050d1a', color: '#e2e8f0', fontFamily: 'system-ui,sans-serif', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ borderBottom: '1px solid #0f172a', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <a href="/" style={{ color: '#475569', textDecoration: 'none', fontSize: 13 }}>← Back</a>
+      <div style={{ borderBottom: '1px solid #0f172a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+        <a href="/" style={{ color: '#475569', textDecoration: 'none', fontSize: 12 }}>← Dashboard</a>
         <span style={{ color: '#1e293b' }}>|</span>
-        <span style={{ fontSize: 18, fontWeight: 700, color: '#a78bfa' }}>⚒ Forge</span>
-        <span style={{ fontSize: 12, color: '#475569', marginLeft: 4 }}>Rapid app scaffolding</span>
+        <span style={{ fontSize: 16, fontWeight: 800, color: '#f59e0b', letterSpacing: '-0.3px' }}>⚒ Forge</span>
+        <span style={{ fontSize: 11, color: '#334155' }}>Rapid app scaffolding with smart blocks</span>
+        {phase === 'building' && (
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 140, height: 4, background: '#0f172a', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg,#6366f1,#f59e0b)', borderRadius: 2, transition: 'width 0.4s ease' }} />
+            </div>
+            <span style={{ fontSize: 11, color: '#64748b' }}>{doneBlocks}/{totalBlocks} blocks</span>
+          </div>
+        )}
+      </div>
 
-        {/* Tabs */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, background: '#0f172a', borderRadius: 8, padding: 4 }}>
-          {[{ id: 'build', label: '⚒ Build' }, { id: 'gemini', label: '👁 Gemini UI' }].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-              background: tab === t.id ? '#6366f1' : 'transparent',
-              color: tab === t.id ? '#fff' : '#475569',
-            }}>{t.label}</button>
-          ))}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* ── Left config panel ─────────────────────────────────────────── */}
+        <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid #0f172a', padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <form onSubmit={handleBuild} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>App Name</label>
+              <input value={appName} onChange={e => setAppName(e.target.value)} placeholder="hotel-booking" disabled={phase === 'building'} style={inputStyle} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Description</label>
+              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="A hotel booking platform where guests can browse rooms, make reservations, check in and out, and managers can track occupancy and revenue…" required disabled={phase === 'building'} rows={5} style={{ ...inputStyle, resize: 'vertical' }} />
+              <div style={{ fontSize: 10, color: '#334155', marginTop: 4 }}>The more detail, the smarter the blocks configure themselves.</div>
+            </div>
+
+            {/* Presets */}
+            <div>
+              <label style={labelStyle}>Quick presets</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                {[
+                  { label: 'SaaS', ids: ['supabase','auth-email','dashboard-layout','crud-table','crud-api','ai-chat','stripe'] },
+                  { label: 'Landing', ids: ['landing','auth-email'] },
+                  { label: 'Full Stack', ids: ['supabase','auth-email','dashboard-layout','crud-table','crud-api','ai-chat','landing','stripe','email-resend'] },
+                  { label: 'API only', ids: ['supabase','crud-api'] },
+                ].map(p => (
+                  <button key={p.label} type="button" onClick={() => selectPreset(p.ids)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, border: '1px solid #1e293b', background: '#0f172a', color: '#64748b', cursor: 'pointer' }}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Block selector */}
+            <div>
+              <label style={labelStyle}>Blocks ({selected.size} selected)</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+                {ALL_BLOCKS.map(b => {
+                  const on = selected.has(b.id)
+                  return (
+                    <div key={b.id} onClick={() => toggleBlock(b.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: b.required ? 'default' : 'pointer', background: on ? '#0a1628' : 'transparent', border: `1px solid ${on ? b.color + '30' : 'transparent'}`, transition: 'all 0.15s' }}>
+                      <div style={{ width: 14, height: 14, borderRadius: 3, background: on ? b.color : '#1e293b', border: `1px solid ${on ? b.color : '#334155'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {on && <span style={{ color: '#000', fontSize: 9, fontWeight: 800 }}>✓</span>}
+                      </div>
+                      <span style={{ fontSize: 11 }}>{b.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: on ? '#e2e8f0' : '#64748b' }}>{b.label}</div>
+                        <div style={{ fontSize: 9, color: '#334155', marginTop: 1 }}>{b.desc}</div>
+                      </div>
+                      {b.required && <span style={{ fontSize: 8, color: '#334155', fontStyle: 'italic', flexShrink: 0 }}>req</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <button type="submit" disabled={phase === 'building' || !description.trim()} style={{ padding: '10px', borderRadius: 8, border: 'none', cursor: phase === 'building' ? 'default' : 'pointer', background: phase === 'building' ? '#1e293b' : 'linear-gradient(135deg,#f59e0b,#6366f1)', color: '#fff', fontSize: 13, fontWeight: 800, letterSpacing: '-0.2px' }}>
+              {phase === 'building' ? '⟳ Building…' : '⚒ Build App'}
+            </button>
+            {phase === 'building' && <button type="button" onClick={() => abortRef.current?.abort()} style={{ padding: '6px', borderRadius: 6, border: '1px solid #ef4444', background: 'transparent', color: '#ef4444', fontSize: 11, cursor: 'pointer' }}>Stop</button>}
+          </form>
+        </div>
+
+        {/* ── Right live build panel ─────────────────────────────────────── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {phase === 'config' ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, color: '#1e293b' }}>
+              <div style={{ fontSize: 64 }}>⚒</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#334155' }}>Describe your app to begin</div>
+              <div style={{ fontSize: 13, color: '#1e293b', maxWidth: 400, textAlign: 'center', lineHeight: 1.7 }}>
+                Haiku analyzes your description in ~2 seconds, then smart blocks assemble themselves — entities, routes, nav items, AI prompts — all customized for your specific app.
+              </div>
+            </div>
+          ) : (
+            <div style={{ flex: 1, display: 'grid', gridTemplateRows: 'auto 1fr auto', gridTemplateColumns: '1fr 1fr', gap: 0, overflow: 'hidden' }}>
+
+              {/* Block assembly grid — top left */}
+              <div style={{ gridRow: '1 / 2', gridColumn: '1 / 2', padding: 14, borderBottom: '1px solid #0f172a', borderRight: '1px solid #0f172a' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+                  {config ? `⚡ ${config.appName} — ${config.entities?.length || 0} entities, ${config.navItems?.length || 0} routes` : '⟳ Analyzing description…'}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {ALL_BLOCKS.filter(b => selected.has(b.id)).map(b => {
+                    const status = blockStatus[b.id] || 'pending'
+                    return (
+                      <div key={b.id} style={{
+                        padding: '6px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 6,
+                        border: `1px solid ${status === 'done' ? b.color + '60' : status === 'building' ? b.color + '90' : '#1e293b'}`,
+                        background: status === 'done' ? b.color + '18' : status === 'building' ? b.color + '25' : '#0a1220',
+                        transition: 'all 0.3s ease',
+                        boxShadow: status === 'building' ? `0 0 12px ${b.color}40` : 'none',
+                      }}>
+                        <span style={{ fontSize: 13 }}>{b.icon}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: status === 'pending' ? '#334155' : '#e2e8f0' }}>{b.label}</span>
+                        {status === 'building' && <span style={{ fontSize: 9, color: b.color, animation: 'pulse 1s infinite' }}>●</span>}
+                        {status === 'done' && <span style={{ fontSize: 10, color: b.color }}>✓</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Config preview — top right */}
+              <div style={{ gridRow: '1 / 2', gridColumn: '2 / 3', padding: 14, borderBottom: '1px solid #0f172a', overflow: 'auto' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Smart Config</div>
+                {config ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {config.entities?.map(e => (
+                      <div key={e.name} style={{ fontSize: 10, color: '#64748b' }}>
+                        <span style={{ color: '#a78bfa', fontWeight: 700 }}>{e.label}</span>
+                        <span style={{ color: '#334155' }}> → [{e.fields?.join(', ')}]</span>
+                      </div>
+                    ))}
+                    {config.navItems?.map(n => (
+                      <div key={n.href} style={{ fontSize: 10, color: '#64748b' }}>
+                        <span style={{ color: '#22d3ee' }}>{n.label}</span>
+                        <span style={{ color: '#334155' }}> → {n.href}</span>
+                      </div>
+                    ))}
+                    {config.headline && <div style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}><span style={{ color: '#f59e0b' }}>headline</span> "{config.headline}"</div>}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 10, color: '#1e293b' }}>Waiting for Haiku analysis…</div>
+                )}
+              </div>
+
+              {/* File tree — bottom left */}
+              <div ref={filesRef} style={{ gridRow: '2 / 3', gridColumn: '1 / 2', borderRight: '1px solid #0f172a', padding: '10px 14px', overflowY: 'auto', fontFamily: 'monospace', scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Files Written ({totalFiles})</div>
+                {files.map((f, i) => (
+                  <div key={i} style={{ marginBottom: 6, animation: 'fadeIn 0.2s ease' }}>
+                    <div style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>+ {f.path}</div>
+                    <div style={{ fontSize: 9, color: '#334155', marginLeft: 10, lineHeight: 1.4, whiteSpace: 'pre', overflow: 'hidden', maxHeight: 30 }}>
+                      {f.preview?.slice(0, 100)}
+                    </div>
+                  </div>
+                ))}
+                {files.length === 0 && <div style={{ fontSize: 10, color: '#1e293b' }}>Files appear here as blocks assemble…</div>}
+              </div>
+
+              {/* Install log — bottom right */}
+              <div ref={installRef} style={{ gridRow: '2 / 3', gridColumn: '2 / 3', padding: '10px 14px', overflowY: 'auto', fontFamily: 'monospace', scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>npm install</div>
+                {installLog.map((line, i) => (
+                  <div key={i} style={{ fontSize: 10, color: '#475569', lineHeight: 1.5 }}>{line}</div>
+                ))}
+                {installLog.length === 0 && <div style={{ fontSize: 10, color: '#1e293b' }}>Install log appears after blocks are assembled…</div>}
+              </div>
+
+              {/* Done banner */}
+              {phase === 'done' && result && (
+                <div style={{ gridRow: '3 / 4', gridColumn: '1 / 3', padding: '12px 20px', background: '#0a1e12', borderTop: '1px solid #166534', display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#4ade80' }}>✓ {result.appName} scaffolded — {totalFiles} files written</div>
+                    <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>Path: {result.appPath}</div>
+                  </div>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                    <a href={`/?ws=${wsId.current}`} style={{ padding: '7px 16px', borderRadius: 7, background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+                      💬 Fine-tune with Claude
+                    </a>
+                    <a href={`/?ws=${wsId.current}&prompt=Take a screenshot of the homepage at http://localhost:3000 in the ${result.relPath} directory (run next dev first), then send it to Gemini for UI analysis and improvement suggestions`} style={{ padding: '7px 16px', borderRadius: 7, background: '#1e293b', color: '#a78bfa', fontSize: 12, fontWeight: 700, textDecoration: 'none', border: '1px solid #334155' }}>
+                      👁 Gemini UI Review
+                    </a>
+                    <button onClick={() => { setPhase('config'); setEvents([]); setFiles([]); setInstallLog([]); setBlockStatus({}); setConfig(null); setResult(null) }} style={{ padding: '7px 16px', borderRadius: 7, background: '#1e293b', color: '#64748b', fontSize: 12, cursor: 'pointer', border: '1px solid #1e293b' }}>
+                      New app
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px' }}>
-        {tab === 'build' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 20, alignItems: 'start' }}>
-            {/* Left panel */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <form onSubmit={handleBuild} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>App Name</label>
-                  <input
-                    value={appName} onChange={e => setAppName(e.target.value)}
-                    placeholder="my-saas-app"
-                    style={{ width: '100%', marginTop: 6, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontSize: 13, boxSizing: 'border-box' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Description</label>
-                  <textarea
-                    value={description} onChange={e => setDescription(e.target.value)}
-                    placeholder="A hotel booking platform where guests can browse rooms, make reservations, and managers can see occupancy..."
-                    required
-                    rows={5}
-                    style={{ width: '100%', marginTop: 6, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Stack</label>
-                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {STACKS.map(s => (
-                      <label key={s.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: stack === s.id ? '#1e1b4b' : '#0f172a', border: `1px solid ${stack === s.id ? '#6366f1' : '#1e293b'}` }}>
-                        <input type="radio" name="stack" value={s.id} checked={stack === s.id} onChange={() => setStack(s.id)} style={{ marginTop: 2 }} />
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: stack === s.id ? '#a78bfa' : '#94a3b8' }}>{s.label}</div>
-                          <div style={{ fontSize: 10, color: '#475569' }}>{s.desc}</div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Blocks ({selectedBlocks.size} selected)</label>
-                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    {BLOCKS.map(b => {
-                      const selected = selectedBlocks.has(b.id)
-                      return (
-                        <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, cursor: b.required ? 'default' : 'pointer', background: selected ? '#0f1c30' : 'transparent', border: `1px solid ${selected ? '#334155' : 'transparent'}` }}
-                          onClick={() => toggleBlock(b.id)}>
-                          <div style={{ width: 16, height: 16, borderRadius: 4, background: selected ? '#6366f1' : '#1e293b', border: `1px solid ${selected ? '#6366f1' : '#334155'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            {selected && <span style={{ color: '#fff', fontSize: 10 }}>✓</span>}
-                          </div>
-                          <span style={{ fontSize: 11 }}>{b.icon}</span>
-                          <div style={{ flex: 1 }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: selected ? '#e2e8f0' : '#64748b' }}>{b.label}</span>
-                            <span style={{ fontSize: 10, color: '#334155', marginLeft: 6 }}>{b.desc}</span>
-                          </div>
-                          {b.required && <span style={{ fontSize: 9, color: '#475569', fontStyle: 'italic' }}>required</span>}
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <button type="submit" disabled={building || !description.trim()} style={{
-                  padding: '10px 20px', borderRadius: 8, border: 'none', cursor: building ? 'default' : 'pointer',
-                  background: building ? '#1e293b' : '#6366f1', color: '#fff', fontSize: 13, fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                }}>
-                  {building ? (
-                    <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span> Scaffolding…</>
-                  ) : '⚒ Scaffold App'}
-                </button>
-
-                {building && (
-                  <button type="button" onClick={() => abortRef.current?.abort()} style={{ padding: '6px', borderRadius: 6, border: '1px solid #ef4444', background: 'transparent', color: '#ef4444', fontSize: 11, cursor: 'pointer' }}>
-                    Stop
-                  </button>
-                )}
-              </form>
-            </div>
-
-            {/* Right panel — output */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {/* Output stream */}
-              <div style={{ background: '#020817', border: '1px solid #0f172a', borderRadius: 10, overflow: 'hidden' }}>
-                <div style={{ padding: '8px 14px', borderBottom: '1px solid #0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>BUILD OUTPUT</span>
-                  {building && <span style={{ fontSize: 10, color: '#6366f1' }}>● live</span>}
-                  {done && <span style={{ fontSize: 10, color: '#22c55e' }}>✓ done</span>}
-                </div>
-                <pre ref={outputRef} style={{
-                  margin: 0, padding: '14px', minHeight: 480, maxHeight: '60vh', overflowY: 'auto',
-                  fontSize: 12, lineHeight: 1.6, color: '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent',
-                }}>
-                  {output || (building ? '' : 'Scaffold output will appear here…\n\nDescribe your app, select blocks, and click "Scaffold App".\nThe agent will read the block library and assemble your project.')}
-                </pre>
-              </div>
-
-              {/* Post-build actions */}
-              {done && workspaceId && (
-                <div style={{ background: '#0a1628', border: '1px solid #166534', borderRadius: 10, padding: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#4ade80', marginBottom: 10 }}>✓ Scaffold complete</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <a href={`/?ws=${workspaceId}`} style={{ padding: '6px 14px', borderRadius: 6, background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
-                      💬 Fine-tune with Claude
-                    </a>
-                    <button onClick={() => {
-                      const appPath = `/root/workspace/${workspaceId}/${appName || 'my-app'}`
-                      navigator.clipboard.writeText(appPath)
-                    }} style={{ padding: '6px 14px', borderRadius: 6, background: '#1e293b', color: '#94a3b8', fontSize: 12, cursor: 'pointer', border: '1px solid #334155' }}>
-                      📋 Copy path
-                    </button>
-                    <button onClick={() => setTab('gemini')} style={{ padding: '6px 14px', borderRadius: 6, background: '#1e293b', color: '#94a3b8', fontSize: 12, cursor: 'pointer', border: '1px solid #334155' }}>
-                      👁 Gemini UI review
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {tab === 'gemini' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
-            {/* Gemini form */}
-            <form onSubmit={handleGeminiUI} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#a78bfa', marginBottom: 4 }}>👁 Gemini UI Analysis</div>
-                <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.5 }}>
-                  Paste a public screenshot URL. Gemini Vision will analyze the UI, suggest improvements, or generate redesigned code.
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Screenshot URL</label>
-                <input
-                  value={screenshotUrl} onChange={e => setScreenshotUrl(e.target.value)}
-                  placeholder="https://... (public image URL)"
-                  required
-                  style={{ width: '100%', marginTop: 6, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontSize: 13, boxSizing: 'border-box' }}
-                />
-                <div style={{ fontSize: 10, color: '#334155', marginTop: 4 }}>Use 0x0.st, imgbb, or any public URL. Or take a screenshot via the agent first.</div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Task</label>
-                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {[
-                    { id: 'analyze', label: '🔍 Analyze', desc: 'UX feedback and specific improvement suggestions' },
-                    { id: 'redesign', label: '🎨 Redesign', desc: 'Returns complete HTML+Tailwind redesign' },
-                    { id: 'code', label: '⚛️ To React', desc: 'Converts screenshot to React component code' },
-                  ].map(t => (
-                    <label key={t.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: geminiTask === t.id ? '#1e1b4b' : '#0f172a', border: `1px solid ${geminiTask === t.id ? '#6366f1' : '#1e293b'}` }}>
-                      <input type="radio" value={t.id} checked={geminiTask === t.id} onChange={() => setGeminiTask(t.id)} style={{ marginTop: 2 }} />
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: geminiTask === t.id ? '#a78bfa' : '#94a3b8' }}>{t.label}</div>
-                        <div style={{ fontSize: 10, color: '#475569' }}>{t.desc}</div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Extra context (optional)</label>
-                <textarea
-                  value={geminiContext} onChange={e => setGeminiContext(e.target.value)}
-                  placeholder="e.g. This is a hotel booking platform targeting luxury guests. Make it feel premium."
-                  rows={3}
-                  style={{ width: '100%', marginTop: 6, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              <button type="submit" disabled={geminiLoading || !screenshotUrl.trim()} style={{
-                padding: '10px 20px', borderRadius: 8, border: 'none', cursor: geminiLoading ? 'default' : 'pointer',
-                background: geminiLoading ? '#1e293b' : '#6366f1', color: '#fff', fontSize: 13, fontWeight: 700,
-              }}>
-                {geminiLoading ? '⟳ Analyzing…' : '👁 Analyze with Gemini'}
-              </button>
-            </form>
-
-            {/* Gemini result */}
-            <div style={{ background: '#020817', border: '1px solid #0f172a', borderRadius: 10, overflow: 'hidden' }}>
-              <div style={{ padding: '8px 14px', borderBottom: '1px solid #0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>GEMINI RESPONSE</span>
-                {geminiLoading && <span style={{ fontSize: 10, color: '#6366f1' }}>● processing</span>}
-              </div>
-              <pre style={{
-                margin: 0, padding: '14px', minHeight: 480, maxHeight: '70vh', overflowY: 'auto',
-                fontSize: 12, lineHeight: 1.7, color: '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent',
-              }}>
-                {geminiResult || 'Gemini\'s analysis will appear here.\n\nPaste a screenshot URL and choose a task.'}
-              </pre>
-              {geminiResult && (
-                <div style={{ borderTop: '1px solid #0f172a', padding: '8px 14px' }}>
-                  <button onClick={() => navigator.clipboard.writeText(geminiResult)} style={{ padding: '4px 10px', borderRadius: 6, background: '#1e293b', color: '#64748b', fontSize: 11, border: 'none', cursor: 'pointer' }}>
-                    Copy result
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        * { box-sizing: border-box; }
+      `}</style>
     </div>
   )
 }
+
+const labelStyle = { fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }
+const inputStyle = { width: '100%', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 7, padding: '7px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', display: 'block' }
