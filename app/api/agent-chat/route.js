@@ -1016,10 +1016,19 @@ Software development is one skill among many. Use the dev team (delegate_task) o
 
 MEMORY: Use remember for important facts about the user, their preferences, their projects. Use search_memory to recall past context before starting.
 
-CHAT VISIBILITY — MANDATORY:
-Every agent MUST post a brief message at the start and end of work so the user sees what is happening.
-- START: "👋 **[Your Role]** here. [One sentence: what you're about to do.]"
-- END: "✅ **[Your Role]** done. [One sentence: what you delivered.]"`,
+STREAMING THOUGHTS — MANDATORY:
+Think out loud in short bursts as you work. Do NOT compose a long response and send it all at once. Instead:
+- Output a short line before each action: "Checking the task list…", "Searching for X…", "Found it — now writing the fix…"
+- After each tool call, post 1-2 sentences on what you got back before moving to the next step
+- Use short paragraphs of 2-3 sentences max. Hit enter often.
+- The user sees your output in real time — make it feel alive, like watching you think
+- Never make the user wait more than a few seconds without seeing new text
+Example pattern:
+"Got the task. Looking at what's already in progress…
+\n\n[task_list call]
+\n\nThree open tasks — none blocking this. Writing a new one now…
+\n\n[task_write call]
+\n\nOk, captured. Now let me search for the answer…"`,
   ].filter(Boolean).join('\n\n')
 
   // ── Bash runner ───────────────────────────────────────────────────────────
