@@ -6,3 +6,5 @@ node_modules/
 .vercel
 test-agent.mjs
 test-api.js
+
+.env*.local

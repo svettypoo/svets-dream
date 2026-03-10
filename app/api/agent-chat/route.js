@@ -46,13 +46,14 @@ export async function POST(req) {
 
   // Per-conversation isolated workspace. Falls back to global home if no workspaceId supplied.
   const wsHome = workspaceId ? `/root/workspace/${workspaceId}` : home
-  // Ensure the workspace dir exists on the Railway execution server (fire-and-forget, non-blocking)
-  if (workspaceId && process.env.EXECUTION_SERVER_URL) {
-    fetch(`${process.env.EXECUTION_SERVER_URL}/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.EXEC_TOKEN || ''}` },
-      body: JSON.stringify({ command: `mkdir -p "${wsHome}"`, cwd: '/root/workspace' }),
+  // Ensure workspace exists locally and is a git repo (fire-and-forget)
+  if (workspaceId) {
+    import('fs').then(({ mkdirSync }) => {
+      mkdirSync(wsHome, { recursive: true })
     }).catch(() => {})
+    spawn(process.platform === 'win32' ? 'bash' : '/bin/bash', ['-c',
+      `git -C "${wsHome}" rev-parse --git-dir 2>/dev/null || (git init -q "${wsHome}" && git -C "${wsHome}" config user.email "agents@svets-dream.app" && git -C "${wsHome}" config user.name "Svet's Dream Agent")`
+    ], { stdio: 'ignore' }).unref()
   }
 
   const isCTO = /cto|chief\s*tech/i.test(agent.role || '') || /cto/i.test(agent.label || '')
@@ -216,6 +217,17 @@ export async function POST(req) {
           content: { type: 'string', description: 'Full file content to write' },
         },
         required: ['path', 'content'],
+      },
+    },
+    {
+      name: 'git_commit',
+      description: 'Save a checkpoint of all work done so far. Call this after completing a significant piece of work (a full feature, a working page, a passing test). This commits all files to the workspace git repo so progress is never lost.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', description: 'Short description of what was built or changed (e.g. "Add hero section and contact form")' },
+        },
+        required: ['message'],
       },
     },
     {
@@ -567,66 +579,36 @@ Every agent MUST post a brief chat message at the start and end of their work so
 - START: First line of your response must be: "👋 **[Your Role]** here. [One sentence: what you're about to do.]"
 - END: Last line of your response must be: "✅ **[Your Role]** done. [One sentence: what you delivered.]"
 Example start: "👋 **Backend Programmer** here. Building the Meridian Estates landing page with hero section, listings grid, and contact form."
-Example end: "✅ **Backend Programmer** done. Full landing page written to ~/meridian-estates/index.html — deploy with \`vercel --prod --yes\`."
+Example end: "✅ **Backend Programmer** done. Full landing page written to ~/index.html and committed — preview loads automatically in the Preview tab."
 Never skip these. The user is watching and needs to know you're working.`,
   ].filter(Boolean).join('\n\n')
 
   // ── Bash runner ───────────────────────────────────────────────────────────
-  // If EXECUTION_SERVER_URL is set, forward bash commands to the persistent execution server.
-  // Otherwise fall back to local spawn (works in local dev, limited on Vercel serverless).
+  // Always runs locally on the same container where files are written.
+  // No HTTP hop — unified filesystem means agents can read their own writes instantly.
+  // Execution server (EXEC_SERVER_URL) is kept only for Playwright/browser tools.
   const EXEC_SERVER_URL = process.env.EXECUTION_SERVER_URL
   const EXEC_TOKEN = process.env.EXEC_TOKEN || ''
 
+  const LOCAL_BASH = process.platform === 'win32'
+    ? (() => { const { existsSync } = require('fs'); return [process.env.SHELL, 'C:\\Users\\pargo_pxnd4wa\\scoop\\apps\\git\\current\\bin\\bash.exe', '/bin/bash', 'bash'].find(p => p && (p === 'bash' || existsSync(p))) || 'bash' })()
+    : '/bin/bash'
+
   async function runBash(command, cwd) {
-    if (EXEC_SERVER_URL) {
-      // Forward to execution server — has npm, git, vercel CLI, etc.
-      const cwdResolved = (cwd || wsHome).replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
-      const res = await fetch(`${EXEC_SERVER_URL}/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
-        body: JSON.stringify({ command, cwd: cwdResolved, timeout: 120000 }),
-      })
-      if (!res.ok) {
-        const txt = await res.text()
-        return { stdout: '', stderr: txt, exitCode: 1 }
-      }
-      // Collect streamed output
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let output = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        output += decoder.decode(value, { stream: true })
-      }
-      // Parse exit code from "[exit: N]" suffix
-      const exitMatch = output.match(/\[exit:\s*(\d+)\]$/)
-      const exitCode = exitMatch ? parseInt(exitMatch[1]) : 0
-      const stdout = exitMatch ? output.slice(0, -exitMatch[0].length).trim() : output
-      return { stdout, stderr: '', exitCode }
-    }
+    const cwdResolved = (cwd || wsHome).replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome)
 
-    // Local fallback
-    const { existsSync } = await import('fs')
-    const BASH = [
-      process.env.SHELL,
-      'C:\\Users\\pargo_pxnd4wa\\scoop\\apps\\git\\current\\bin\\bash.exe',
-      '/bin/bash',
-      'bash',
-    ].find(p => p && (p === 'bash' || existsSync(p))) || 'bash'
-
-    return new Promise((resolve, reject) => {
-      const child = spawn(BASH, ['-c', command], {
-        cwd: (cwd || wsHome).replace(/^~\//, wsHome + '/').replace(/^~$/, wsHome),
-        env: { ...process.env, FORCE_COLOR: '0' },
+    return new Promise((resolve) => {
+      const child = spawn(LOCAL_BASH, ['-c', command], {
+        cwd: cwdResolved,
+        env: { ...process.env, HOME: wsHome, FORCE_COLOR: '0', TERM: 'dumb' },
         timeout: 120000,
         shell: false,
       })
       let stdout = '', stderr = ''
-      child.stdout.on('data', d => stdout += d.toString())
-      child.stderr.on('data', d => stderr += d.toString())
-      child.on('close', code => resolve({ stdout, stderr, exitCode: code }))
-      child.on('error', reject)
+      child.stdout?.on('data', d => stdout += d.toString())
+      child.stderr?.on('data', d => stderr += d.toString())
+      child.on('close', code => resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: code ?? 0 }))
+      child.on('error', err => resolve({ stdout: '', stderr: err.message, exitCode: 1 }))
     })
   }
 
@@ -746,14 +728,6 @@ Never skip these. The user is watching and needs to know you're working.`,
       try {
         mkdirSync(dirname(resolvedPath), { recursive: true })
         writeFileSync(resolvedPath, input.content, 'utf8')
-        // Mirror to Railway execution server so sub-agents can read it via bash
-        if (EXEC_SERVER_URL) {
-          fetch(`${EXEC_SERVER_URL}/write`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${EXEC_TOKEN}` },
-            body: JSON.stringify({ path: input.path, content: input.content }),
-          }).catch(() => {})
-        }
         send(`\n\n✅ Written: ${input.path}`)
         // If this is an HTML file, emit a preview marker
         if (input.path.endsWith('.html') && input.content) {
@@ -766,6 +740,12 @@ Never skip these. The user is watching and needs to know you're working.`,
         send(`\n\n❌ ${err.message}`)
         return `Error: ${err.message}`
       }
+
+    } else if (name === 'git_commit') {
+      const msg = (input.message || 'checkpoint').replace(/"/g, '\\"')
+      const r = await runBash(`git add -A && git commit -m "${msg}" --allow-empty`, wsHome)
+      send(`\n\n📦 **Committed:** \`${input.message}\``)
+      return (r.stdout || r.stderr || 'Committed.').slice(0, 500)
 
     } else if (name === 'run_bash') {
       const cmd = input.command

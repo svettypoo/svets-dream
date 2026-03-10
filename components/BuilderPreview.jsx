@@ -119,10 +119,29 @@ export default function BuilderPreview({ visible, workspaceId }) {
       if (type === 'url') {
         setPreviewUrl(data.url)
         setUrlInput(data.url)
+        setPreviewHtml(null)
         setTab('preview')
       }
       if (type === 'html' && data?.html) {
-        setPreviewHtml(data.html)
+        // Use the /api/preview route (real HTTP, relative assets work) if workspaceId available,
+        // otherwise fall back to srcDoc for immediate render
+        if (workspaceId) {
+          const url = `/api/preview/${workspaceId}/index.html`
+          setPreviewUrl(url)
+          setUrlInput(url)
+          setPreviewHtml(null)
+        } else {
+          setPreviewHtml(data.html)
+        }
+        setTab('preview')
+      }
+      // When any file is written, if it's an HTML file auto-point preview at the route
+      if (type === 'file' && data?.path?.endsWith('.html') && workspaceId) {
+        const relPath = data.path.replace(/^~\//, '')
+        const url = `/api/preview/${workspaceId}/${relPath}`
+        setPreviewUrl(url)
+        setUrlInput(url)
+        setPreviewHtml(null)
         setTab('preview')
       }
     }
@@ -428,15 +447,7 @@ export default function BuilderPreview({ visible, workspaceId }) {
               }}>URL</button>
             )}
           </div>
-          {previewHtml ? (
-            <iframe
-              key={previewHtml.slice(0, 40)}
-              srcDoc={previewHtml}
-              style={{ flex: 1, border: 'none', background: '#fff' }}
-              title="Build Preview"
-              sandbox="allow-scripts allow-same-origin"
-            />
-          ) : previewUrl ? (
+          {previewUrl ? (
             <iframe
               key={previewUrl}
               src={previewUrl}
