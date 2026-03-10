@@ -5,7 +5,6 @@ import { spawn } from 'child_process'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300  // 5 min — Vercel Pro limit for long agent chains
-export const config = { api: { bodyParser: { sizeLimit: '50mb' } } }
 const MAX_ITERATIONS = 20
 const MAX_DELEGATION_DEPTH = 2
 
