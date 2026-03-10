@@ -2,47 +2,115 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase'
 
-function MarkdownText({ text }) {
-  if (!text) return null
-  const lines = text.split('\n')
+// ── Terminal block — renders bash output as a real terminal window ─────────
+function TerminalBlock({ content }) {
+  const [copied, setCopied] = useState(false)
+  const lines = content.split('\n')
+  // Determine exit status from last line
+  const lastLine = lines[lines.length - 1] || ''
+  const exitMatch = lastLine.match(/\[exit:\s*(\d+)\]/)
+  const exitCode = exitMatch ? parseInt(exitMatch[1]) : null
+  const succeeded = exitCode === 0
+
+  function copy() {
+    navigator.clipboard?.writeText(content).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {lines.map((line, i) => {
-        if (!line.trim()) return <div key={i} style={{ height: 4 }} />
-        if (line.startsWith('### ')) return <div key={i} style={{ fontWeight: 700, fontSize: 13, color: '#a78bfa', marginTop: 6 }}>{renderInline(line.slice(4))}</div>
-        if (line.startsWith('## ')) return <div key={i} style={{ fontWeight: 700, fontSize: 14, color: '#c4b5fd', marginTop: 8 }}>{renderInline(line.slice(3))}</div>
-        if (line.startsWith('# ')) return <div key={i} style={{ fontWeight: 800, fontSize: 15, color: '#e2e8f0', marginTop: 8 }}>{renderInline(line.slice(2))}</div>
-        if (line.match(/^[-*•]\s/)) return (
-          <div key={i} style={{ display: 'flex', gap: 8, paddingLeft: 4 }}>
-            <span style={{ color: '#6366f1', flexShrink: 0, marginTop: 1 }}>▸</span>
-            <span>{renderInline(line.replace(/^[-*•]\s/, ''))}</span>
-          </div>
-        )
-        if (line.match(/^\d+\.\s/)) return (
-          <div key={i} style={{ display: 'flex', gap: 8, paddingLeft: 4 }}>
-            <span style={{ color: '#6366f1', flexShrink: 0, minWidth: 16, fontWeight: 700, fontSize: 11 }}>{line.match(/^(\d+)\./)[1]}.</span>
-            <span>{renderInline(line.replace(/^\d+\.\s/, ''))}</span>
-          </div>
-        )
-        // Delegation separator lines
-        if (line.match(/^─{10,}/)) return <div key={i} style={{ borderTop: '1px solid #1e3a5f', margin: '4px 0' }} />
-        return <div key={i}>{renderInline(line)}</div>
-      })}
+    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #1e3a5f', margin: '6px 0', fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace' }}>
+      {/* Title bar */}
+      <div style={{ background: '#162032', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid #1e3a5f' }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
+        <span style={{ color: '#4b6785', fontSize: 10, fontWeight: 600, marginLeft: 4, flex: 1 }}>bash</span>
+        {exitCode !== null && (
+          <span style={{ fontSize: 10, fontWeight: 700, color: succeeded ? '#4ade80' : '#f87171', background: succeeded ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)', padding: '1px 7px', borderRadius: 8, border: `1px solid ${succeeded ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)'}` }}>
+            exit {exitCode}
+          </span>
+        )}
+        <button onClick={copy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied ? '#4ade80' : '#4b6785', fontSize: 10, padding: '0 4px', transition: 'color 0.15s' }}>
+          {copied ? '✓ copied' : 'copy'}
+        </button>
+      </div>
+      {/* Body */}
+      <div style={{ background: '#060f1a', padding: '10px 14px', maxHeight: 380, overflowY: 'auto', scrollbarWidth: 'none' }}>
+        {lines.map((line, i) => {
+          const isExit = /^\[exit:\s*\d+\]/.test(line)
+          const isError = /^\[error:/.test(line) || /^error:/i.test(line)
+          const isWarn = /^warn/i.test(line) || /^npm warn/i.test(line)
+          const isSuccess = /✓|✅|success|done|complete/i.test(line) && !isError
+          const color = isExit ? (succeeded ? '#4ade80' : '#f87171')
+            : isError ? '#f87171'
+            : isWarn ? '#fbbf24'
+            : '#a3e635'
+          return (
+            <div key={i} style={{ color, fontSize: 11.5, lineHeight: 1.65, whiteSpace: 'pre-wrap', wordBreak: 'break-all', minHeight: 2 }}>
+              {line || '\u00a0'}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
+// ── Inline text renderer — bold, italic, backtick ─────────────────────────
 function renderInline(text) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  // Split on **bold**, *italic*, and `code`
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/)
   return parts.map((p, i) => {
-    if (p.startsWith('**') && p.endsWith('**')) {
-      return <strong key={i} style={{ color: '#e2e8f0', fontWeight: 700 }}>{p.slice(2, -2)}</strong>
-    }
-    if (p.startsWith('*') && p.endsWith('*') && p.length > 2) {
-      return <em key={i} style={{ color: '#94a3b8' }}>{p.slice(1, -1)}</em>
-    }
+    if (p.startsWith('**') && p.endsWith('**')) return <strong key={i} style={{ color: '#e2e8f0', fontWeight: 700 }}>{p.slice(2, -2)}</strong>
+    if (p.startsWith('*') && p.endsWith('*') && p.length > 2) return <em key={i} style={{ color: '#94a3b8' }}>{p.slice(1, -1)}</em>
+    if (p.startsWith('`') && p.endsWith('`') && p.length > 2) return <code key={i} style={{ background: 'rgba(99,102,241,0.15)', color: '#a78bfa', padding: '1px 5px', borderRadius: 4, fontSize: '0.9em', fontFamily: 'monospace' }}>{p.slice(1, -1)}</code>
     return p
   })
+}
+
+// ── Markdown renderer — handles headings, lists, code blocks, separators ──
+function MarkdownText({ text }) {
+  if (!text) return null
+
+  // Split text into segments: normal text vs fenced code blocks
+  const segments = []
+  const codeBlockRe = /```[\w]*\n?([\s\S]*?)```/g
+  let lastIndex = 0
+  let match
+  while ((match = codeBlockRe.exec(text)) !== null) {
+    if (match.index > lastIndex) segments.push({ type: 'text', content: text.slice(lastIndex, match.index) })
+    segments.push({ type: 'code', content: match[1] })
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < text.length) segments.push({ type: 'text', content: text.slice(lastIndex) })
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {segments.map((seg, si) => {
+        if (seg.type === 'code') return <TerminalBlock key={si} content={seg.content} />
+        // Render text lines
+        return seg.content.split('\n').map((line, i) => {
+          if (!line.trim()) return <div key={`${si}-${i}`} style={{ height: 4 }} />
+          if (line.startsWith('### ')) return <div key={`${si}-${i}`} style={{ fontWeight: 700, fontSize: 13, color: '#a78bfa', marginTop: 6 }}>{renderInline(line.slice(4))}</div>
+          if (line.startsWith('## ')) return <div key={`${si}-${i}`} style={{ fontWeight: 700, fontSize: 14, color: '#c4b5fd', marginTop: 8 }}>{renderInline(line.slice(3))}</div>
+          if (line.startsWith('# ')) return <div key={`${si}-${i}`} style={{ fontWeight: 800, fontSize: 15, color: '#e2e8f0', marginTop: 8 }}>{renderInline(line.slice(2))}</div>
+          if (line.match(/^[-*•]\s/)) return (
+            <div key={`${si}-${i}`} style={{ display: 'flex', gap: 8, paddingLeft: 4 }}>
+              <span style={{ color: '#6366f1', flexShrink: 0, marginTop: 1 }}>▸</span>
+              <span>{renderInline(line.replace(/^[-*•]\s/, ''))}</span>
+            </div>
+          )
+          if (line.match(/^\d+\.\s/)) return (
+            <div key={`${si}-${i}`} style={{ display: 'flex', gap: 8, paddingLeft: 4 }}>
+              <span style={{ color: '#6366f1', flexShrink: 0, minWidth: 16, fontWeight: 700, fontSize: 11 }}>{line.match(/^(\d+)\./)[1]}.</span>
+              <span>{renderInline(line.replace(/^\d+\.\s/, ''))}</span>
+            </div>
+          )
+          if (line.match(/^━{10,}|^─{10,}/)) return <div key={`${si}-${i}`} style={{ borderTop: '1px solid #1e3a5f', margin: '6px 0' }} />
+          return <div key={`${si}-${i}`}>{renderInline(line)}</div>
+        })
+      })}
+    </div>
+  )
 }
 
 const supabase = createClient()
