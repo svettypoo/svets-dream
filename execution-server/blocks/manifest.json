@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Reusable frontend/backend blocks for rapid app scaffolding",
   "blocks": [
     {
@@ -424,6 +424,60 @@
       "files": ["api-keys/lib/api-keys.js", "api-keys/app/api/keys/route.js", "api-keys/components/ApiKeyManager.jsx", "api-keys/schema.sql"],
       "requires": ["supabase"],
       "tags": ["api-keys", "auth", "developer", "saas", "access"]
+    },
+    {
+      "id": "whatsapp",
+      "name": "WhatsApp Messaging",
+      "description": "Send/receive WhatsApp messages via Meta Cloud API — text, templates, buttons, images. Inbound webhook stores messages.",
+      "type": "api",
+      "files": ["whatsapp/lib/whatsapp.js", "whatsapp/app/api/whatsapp/route.js", "whatsapp/schema.sql"],
+      "requires": ["supabase"],
+      "tags": ["whatsapp", "messaging", "meta", "notifications", "chat"]
+    },
+    {
+      "id": "slack",
+      "name": "Slack Notifications",
+      "description": "Send alerts to Slack channels or DMs — webhook, Bot API, interactive buttons, slash command handler",
+      "type": "api",
+      "files": ["slack/lib/slack.js", "slack/app/api/slack/route.js", "slack/schema.sql"],
+      "requires": ["next-shell"],
+      "tags": ["slack", "notifications", "team", "alerts", "integrations"]
+    },
+    {
+      "id": "ai-messaging",
+      "name": "AI Auto-Reply",
+      "description": "Claude-powered auto-reply across all channels (chat, SMS, WhatsApp, Slack). Escalates to human on trigger words. Stores conversation history.",
+      "type": "component",
+      "files": ["ai-messaging/lib/ai-reply.js", "ai-messaging/app/api/ai-reply/route.js", "ai-messaging/components/AiChatWidget.jsx", "ai-messaging/schema.sql"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["ai", "chat", "auto-reply", "claude", "sms", "whatsapp", "support"]
+    },
+    {
+      "id": "data-table-user",
+      "name": "User Data Grid (Spreadsheet)",
+      "description": "Airtable-like data grid — search, sort, filter, inline edit, add/delete rows, CSV export. Works on any DB table.",
+      "type": "component",
+      "files": ["data-table-user/components/DataGrid.jsx", "data-table-user/app/api/data/route.js"],
+      "requires": ["next-shell", "supabase"],
+      "tags": ["data", "table", "grid", "spreadsheet", "airtable", "crud"]
+    },
+    {
+      "id": "reminders",
+      "name": "Reminder Service",
+      "description": "User-set reminders delivered via email/SMS/WhatsApp — one-time or repeating (daily/weekly/monthly). Cron fires due reminders.",
+      "type": "component",
+      "files": ["reminders/lib/reminders.js", "reminders/app/api/reminders/route.js", "reminders/components/ReminderManager.jsx", "reminders/schema.sql"],
+      "requires": ["next-shell", "supabase", "cron"],
+      "tags": ["reminders", "scheduling", "notifications", "email", "sms", "whatsapp"]
+    },
+    {
+      "id": "capacitor",
+      "name": "Capacitor Mobile (iOS + Android)",
+      "description": "Wraps the Next.js web app into a real iOS/Android app — static export, native shell, push notifications, app icon, APK build scripts.",
+      "type": "foundation",
+      "files": ["capacitor/setup.js"],
+      "requires": ["next-shell"],
+      "tags": ["mobile", "ios", "android", "capacitor", "apk", "native"]
     }
   ]
 }

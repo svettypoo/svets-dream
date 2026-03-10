@@ -669,6 +669,113 @@ export default function HomePage() {
     assess('api-keys', 'perfect', 'SHA-256 hashed keys, never stored in plaintext. Scopes, expiry, usage count. ApiKeyManager UI shows once-visible key on creation.')
     done('api-keys')
   },
+
+  'whatsapp': () => {
+    log('whatsapp: WhatsApp via Meta Cloud API')
+    copyBlock('whatsapp', 'lib/whatsapp.js', 'lib/whatsapp.js')
+    copyBlock('whatsapp', 'app/api/whatsapp/route.js', 'app/api/whatsapp/route.js')
+    assess('whatsapp', 'perfect', 'Text, templates, interactive buttons, images. GET webhook verification + POST inbound handler. Stores all messages in DB.')
+    done('whatsapp')
+  },
+
+  'slack': () => {
+    log('slack: Slack notifications + slash commands')
+    copyBlock('slack', 'lib/slack.js', 'lib/slack.js')
+    copyBlock('slack', 'app/api/slack/route.js', 'app/api/slack/route.js')
+    assess('slack', 'perfect', 'Webhook (zero setup) or Bot API (channel posts + DMs). Request signature verification. actionBlock() for interactive buttons.')
+    done('slack')
+  },
+
+  'ai-messaging': () => {
+    log('ai-messaging: AI auto-reply across all channels')
+    copyBlock('ai-messaging', 'lib/ai-reply.js', 'lib/ai-reply.js')
+    copyBlock('ai-messaging', 'app/api/ai-reply/route.js', 'app/api/ai-reply/route.js')
+    copyBlock('ai-messaging', 'components/AiChatWidget.jsx', 'components/AiChatWidget.jsx')
+    // Wire into SMS webhook if present
+    const smsPatch = path.join(outDir, 'app/api/sms/webhook/route.js')
+    if (!dryRun && fs.existsSync(smsPatch)) {
+      let content = fs.readFileSync(smsPatch, 'utf8')
+      if (!content.includes('ai-reply')) {
+        content = content.replace(
+          "return Response.json({ received: true })",
+          `fetch('/api/ai-reply', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: body.data?.payload?.text, channel: 'sms', from: body.data?.payload?.from?.[0]?.phone_number }) }).catch(() => {})
+  return Response.json({ received: true })`
+        )
+        fs.writeFileSync(smsPatch, content, 'utf8')
+        console.log('   ✎ Patched SMS webhook → AI auto-reply')
+      }
+    }
+    // Wire into WhatsApp webhook if present
+    const waPatch = path.join(outDir, 'app/api/whatsapp/route.js')
+    if (!dryRun && fs.existsSync(waPatch)) {
+      let content = fs.readFileSync(waPatch, 'utf8')
+      if (!content.includes('ai-reply')) {
+        content = content.replace(
+          "await markRead(msg.id).catch(() => {})",
+          `await markRead(msg.id).catch(() => {})
+          fetch('/api/ai-reply', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg.text?.body, channel: 'whatsapp', from: msg.from }) }).catch(() => {})`
+        )
+        fs.writeFileSync(waPatch, content, 'utf8')
+        console.log('   ✎ Patched WhatsApp webhook → AI auto-reply')
+      }
+    }
+    assess('ai-messaging', 'perfect', 'Claude Haiku auto-replies across chat/SMS/WhatsApp. Human escalation on trigger words. Conversation history for context. Routes reply back to originating channel.')
+    done('ai-messaging')
+  },
+
+  'data-table-user': () => {
+    log('data-table-user: Spreadsheet-like data grid')
+    copyBlock('data-table-user', 'components/DataGrid.jsx', 'components/DataGrid.jsx')
+    copyBlock('data-table-user', 'app/api/data/route.js', 'app/api/data/route.js')
+    if (!dryRun) {
+      const apiPath = path.join(outDir, 'app/api/data/route.js')
+      if (fs.existsSync(apiPath)) {
+        let content = fs.readFileSync(apiPath, 'utf8')
+        const appTables = (config.entities || []).map(e => `'${e.name}'`).join(', ')
+        if (appTables) {
+          content = content.replace("'items']", `'items', ${appTables}]`)
+          fs.writeFileSync(apiPath, content, 'utf8')
+          console.log(`   ✎ Added ${config.entities?.length || 0} app tables to data grid allowlist`)
+        }
+      }
+    }
+    assess('data-table-user', 'perfect', 'Double-click inline edit, sort, search, filter, CSV export. Works on any allowed DB table.')
+    done('data-table-user')
+  },
+
+  'reminders': () => {
+    log('reminders: User-facing reminder service')
+    copyBlock('reminders', 'lib/reminders.js', 'lib/reminders.js')
+    copyBlock('reminders', 'app/api/reminders/route.js', 'app/api/reminders/route.js')
+    copyBlock('reminders', 'components/ReminderManager.jsx', 'components/ReminderManager.jsx')
+    const cronPath = path.join(outDir, 'app/api/cron/route.js')
+    if (!dryRun && fs.existsSync(cronPath)) {
+      let content = fs.readFileSync(cronPath, 'utf8')
+      if (!content.includes('reminders')) {
+        content = `import { fireDueReminders } from '@/lib/reminders'\n` + content
+        content = content.replace(
+          'return Response.json({ ok: true',
+          `const reminderResults = await fireDueReminders()\n  return Response.json({ ok: true, reminders: reminderResults`
+        )
+        fs.writeFileSync(cronPath, content, 'utf8')
+        console.log('   ✎ Patched cron route → fires due reminders')
+      }
+    }
+    assess('reminders', 'perfect', 'Email/SMS/WhatsApp delivery. One-time or repeating. Cron fires due reminders automatically. User UI to create/cancel.')
+    done('reminders')
+  },
+
+  'capacitor': () => {
+    log('capacitor: iOS + Android mobile wrapper')
+    if (!dryRun) {
+      const capacitorSetup = require(path.join(BLOCKS_DIR, 'capacitor/setup.js'))
+      capacitorSetup(outDir, config)
+    }
+    assess('capacitor', 'good', 'Capacitor configured for static export. Run npm run build:android for APK. iOS requires macOS + Xcode. Bundle ID from config.bundleId.')
+    done('capacitor')
+  },
 }
 
 // ── Run assembly ──────────────────────────────────────────────────────────────
@@ -699,6 +806,9 @@ const ordered = [
   'comments', 'notifications-db', 'export-csv',
   // Developer + SaaS
   'onboarding-flow', 'feature-flags', 'api-keys',
+  // New channels + services
+  'whatsapp', 'slack', 'ai-messaging',
+  'data-table-user', 'reminders', 'capacitor',
 ]
 
 ensureDir(outDir)
