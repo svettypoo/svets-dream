@@ -284,7 +284,30 @@ YOUR WORKFLOW AS UI AGENT
 6. Never contact the user — report to CTO
 7. After implementation: screenshot the live result, compare against design, report gaps` : ''
 
-  const implementerInstructions = !isTopAgent ? `
+  const hasExecServer = !!process.env.EXECUTION_SERVER_URL
+  const implementerInstructions = !isTopAgent ? (hasExecServer ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+YOUR RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You have FULL access to a persistent execution server. npm, git, npx, vercel CLI, node — ALL available.
+- Use run_bash freely: npm install, git clone, git push, npx create-next-app, vercel deploy — all work
+- Use write_file to create source files, then run_bash to install deps and deploy
+- NEVER contact the user directly — report results back to the CTO
+- Keep going until the task is FULLY complete — do not stop after one step
+- Working directory: ~/workspace (persists between commands)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DEPLOYMENT WORKFLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+To deploy a real app:
+1. run_bash: mkdir ~/workspace/[project] && cd ~/workspace/[project] && npm init -y (or npx create-next-app)
+2. write_file: write source files into ~/workspace/[project]/
+3. run_bash: cd ~/workspace/[project] && npm install && npm run build (if needed)
+4. run_bash: cd ~/workspace/[project] && vercel --prod --yes (deploys to Vercel, returns live URL)
+5. Report the live URL back to CTO
+
+You can also: git clone repos, push code to GitHub, run tests, set up databases.
+Always use write_file for large file content, then run_bash for commands.` : `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -310,7 +333,7 @@ REQUIRED STEPS:
 4. Make it look professional: hero, navigation, services, about, contact form, footer
 
 CRITICAL: Put the ENTIRE HTML in the "html" field of output_html. Do NOT just put the path. Do NOT stream it as text first.
-DO NOT attempt npm install, git push, or running a server.` : ''
+DO NOT attempt npm install, git push, or running a server.`) : ''
 
   // OpenClaw context assembly order: SOUL.md → AGENTS.md → role/workflow → skills → org → memories
   const systemPrompt = [
@@ -346,15 +369,49 @@ Use message_agent to consult a peer directly. Use delegate_task to assign implem
   ].filter(Boolean).join('\n\n')
 
   // ── Bash runner ───────────────────────────────────────────────────────────
-  const { existsSync } = await import('fs')
-  const BASH = [
-    process.env.SHELL,
-    'C:\\Users\\pargo_pxnd4wa\\scoop\\apps\\git\\current\\bin\\bash.exe',
-    '/bin/bash',
-    'bash',
-  ].find(p => p && (p === 'bash' || existsSync(p))) || 'bash'
+  // If EXECUTION_SERVER_URL is set, forward bash commands to the persistent execution server.
+  // Otherwise fall back to local spawn (works in local dev, limited on Vercel serverless).
+  const EXEC_SERVER_URL = process.env.EXECUTION_SERVER_URL
+  const EXEC_TOKEN = process.env.EXEC_TOKEN || ''
 
-  function runBash(command, cwd) {
+  async function runBash(command, cwd) {
+    if (EXEC_SERVER_URL) {
+      // Forward to execution server — has npm, git, vercel CLI, etc.
+      const cwdResolved = (cwd || home).replace(/^~\//, home + '/').replace(/^~$/, home)
+      const res = await fetch(`${EXEC_SERVER_URL}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${EXEC_TOKEN}` },
+        body: JSON.stringify({ command, cwd: cwdResolved, timeout: 120000 }),
+      })
+      if (!res.ok) {
+        const txt = await res.text()
+        return { stdout: '', stderr: txt, exitCode: 1 }
+      }
+      // Collect streamed output
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let output = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        output += decoder.decode(value, { stream: true })
+      }
+      // Parse exit code from "[exit: N]" suffix
+      const exitMatch = output.match(/\[exit:\s*(\d+)\]$/)
+      const exitCode = exitMatch ? parseInt(exitMatch[1]) : 0
+      const stdout = exitMatch ? output.slice(0, -exitMatch[0].length).trim() : output
+      return { stdout, stderr: '', exitCode }
+    }
+
+    // Local fallback
+    const { existsSync } = await import('fs')
+    const BASH = [
+      process.env.SHELL,
+      'C:\\Users\\pargo_pxnd4wa\\scoop\\apps\\git\\current\\bin\\bash.exe',
+      '/bin/bash',
+      'bash',
+    ].find(p => p && (p === 'bash' || existsSync(p))) || 'bash'
+
     return new Promise((resolve, reject) => {
       const child = spawn(BASH, ['-c', command], {
         cwd: (cwd || home).replace(/^~\//, home + '/').replace(/^~$/, home),

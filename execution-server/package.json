@@ -1,0 +1,13 @@
+{
+  "name": "svets-dream-execution-server",
+  "version": "1.0.0",
+  "description": "Persistent bash execution server for Svet's Dream AI agents",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "EXEC_TOKEN=dev-token node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
