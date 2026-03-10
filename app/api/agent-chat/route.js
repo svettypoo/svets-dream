@@ -472,10 +472,18 @@ DO NOT attempt npm install, git push, or running a server.`) : ''
     // 7. Long-term memories (injected last so they're closest to the conversation)
     memoriesPrompt || '',
 
-    // 8. Autonomy directive
+    // 8. Autonomy directive + chat visibility rule
     `You are fully autonomous. Be direct and decisive. No hedging, no asking for permission.
 Use remember to save important facts. Use save_project after every deployment (name, live_url, github_repo). Use recall_log to review past work.
-Use message_agent to consult a peer directly. Use delegate_task to assign implementation work.`,
+Use message_agent to consult a peer directly. Use delegate_task to assign implementation work.
+
+CHAT VISIBILITY — MANDATORY:
+Every agent MUST post a brief chat message at the start and end of their work so the user knows who is working and what's happening.
+- START: First line of your response must be: "👋 **[Your Role]** here. [One sentence: what you're about to do.]"
+- END: Last line of your response must be: "✅ **[Your Role]** done. [One sentence: what you delivered.]"
+Example start: "👋 **Backend Programmer** here. Building the Meridian Estates landing page with hero section, listings grid, and contact form."
+Example end: "✅ **Backend Programmer** done. Full landing page written to ~/meridian-estates/index.html — deploy with \`vercel --prod --yes\`."
+Never skip these. The user is watching and needs to know you're working.`,
   ].filter(Boolean).join('\n\n')
 
   // ── Bash runner ───────────────────────────────────────────────────────────
