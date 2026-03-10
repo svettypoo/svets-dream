@@ -486,7 +486,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             {/* Example prompts — shown only on initial state */}
             {messages.length === 1 && !loading && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 16 }}>
-                <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, paddingLeft: 2, marginBottom: 2 }}>Try an example</div>
+                <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, paddingLeft: 2, marginBottom: 2 }}>Try an example</div>
                 {[
                   { icon: '🛒', text: 'Build a SaaS landing page with pricing tiers and a waitlist' },
                   { icon: '📊', text: 'Create a realtime analytics dashboard with charts' },
@@ -498,8 +498,8 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                     className="prompt-chip"
                     onClick={() => { setInput(p.text); }}
                     style={{
-                      background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)',
-                      borderRadius: 8, padding: '9px 12px', color: '#64748b',
+                      background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.25)',
+                      borderRadius: 8, padding: '9px 12px', color: '#7c8db0',
                       fontSize: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
                       fontFamily: 'inherit', lineHeight: 1.4, display: 'flex', alignItems: 'flex-start', gap: 8,
                     }}
@@ -562,7 +562,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 transition: 'all 0.15s', boxShadow: input.trim() ? '0 2px 8px rgba(99,102,241,0.4)' : 'none',
               }}>{loading ? '•••' : '↑'}</button>
             </div>
-            <div style={{ fontSize: 9.5, color: '#1e3a5f', marginTop: 4, textAlign: 'right', paddingRight: 4 }}>⏎ send · Shift+⏎ newline</div>
+            <div style={{ fontSize: 9.5, color: '#334155', marginTop: 4, textAlign: 'right', paddingRight: 4 }}>⏎ send · Shift+⏎ newline</div>
           </div>
         </>
       )}
