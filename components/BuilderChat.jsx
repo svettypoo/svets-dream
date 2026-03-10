@@ -440,7 +440,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         <>
           {/* Messages */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10, scrollbarWidth: 'none', background: '#0d1829' }}>
-            <style>{`div::-webkit-scrollbar{display:none}`}</style>
+            <style>{`div::-webkit-scrollbar{display:none} .prompt-chip:hover{background:rgba(99,102,241,0.2)!important;border-color:rgba(99,102,241,0.5)!important;color:#c4b5fd!important;}`}</style>
             {messages.map((m, i) => (
               <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                 {m.role === 'assistant' && !m.isAssessment && (
@@ -481,6 +481,31 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 )}
               </div>
             ))}
+            {/* Example prompts — shown only on initial state */}
+            {messages.length === 1 && !loading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                <div style={{ fontSize: 10, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, paddingLeft: 2 }}>Try an example</div>
+                {[
+                  '🛒 Build a SaaS landing page with pricing',
+                  '📊 Create a realtime dashboard app',
+                  '🤖 Build a customer support chatbot',
+                  '📱 Make a mobile-first todo app',
+                ].map((prompt, i) => (
+                  <button
+                    key={i}
+                    className="prompt-chip"
+                    onClick={() => { setInput(prompt.slice(2).trim()); }}
+                    style={{
+                      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 8, padding: '8px 12px', color: '#64748b',
+                      fontSize: 12, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+                      fontFamily: 'inherit', lineHeight: 1.4,
+                    }}
+                  >{prompt}</button>
+                ))}
+              </div>
+            )}
+
             {loading && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', border: '1.5px solid #0EA5E9', background: '#0c2040', flexShrink: 0 }}>
