@@ -8,6 +8,20 @@ export const maxDuration = 300  // 5 min — Vercel Pro limit for long agent cha
 const MAX_ITERATIONS = 20
 const MAX_DELEGATION_DEPTH = 2
 
+// ── Task list cache (60s TTL) — avoids DB read on every message ───────────
+const _taskListCache = new Map() // userId -> { data: Task[], fetchedAt: number }
+function getTaskListCache(userId) {
+  const entry = _taskListCache.get(userId)
+  if (entry && Date.now() - entry.fetchedAt < 60_000) return entry.data
+  return null
+}
+function setTaskListCache(userId, data) {
+  _taskListCache.set(userId, { data, fetchedAt: Date.now() })
+}
+function invalidateTaskListCache(userId) {
+  _taskListCache.delete(userId)
+}
+
 // ── Features registry cache (1hr TTL) ─────────────────────────────────────
 // Reads features.md from Railway workspace — synced hourly by sync-features.js
 let _featuresCache = { content: '', fetchedAt: 0 }
@@ -1000,35 +1014,40 @@ CRITICAL: Put the ENTIRE HTML in the "html" field of output_html. Do NOT just pu
     // 8. Autonomy directive + task-first operating model
     `You are fully autonomous. Be direct and decisive. No hedging, no asking for permission.
 
-TASK-FIRST OPERATING MODEL (like OpenClaw):
-Every request you receive is a task. Your job is to:
-1. Call task_list at the start of a conversation to see what is already pending
-2. Call task_write to capture the new task before doing work on it
-3. Execute the work (delegate, research, code, write, plan — whatever is needed)
-4. Call task_update to mark the task done when complete
+TASK-FIRST OPERATING MODEL:
+Apply this filter FIRST before deciding whether to call task_list or task_write:
+
+SIMPLE Q&A — skip task_list and task_write entirely, answer immediately:
+- Message is clearly asking for information: "what is X?", "how does Y work?", "explain Z", "when does…", "is it possible to…"
+- Conversational replies, clarifications, definitions, quick lookups
+- Messages under ~15 words that don't describe work to do
+
+REAL WORK — call task_write (and task_list if context would help) before starting:
+- User asks you to build, create, write, deploy, research, schedule, fix, change, add, remove something
+- The work will take more than one tool call to complete
+- Something worth tracking across sessions
+
+Examples:
+- "what is react?" → answer directly, no task calls
+- "how do I deploy to vercel?" → answer directly, no task calls
+- "build a landing page" → task_list (see what's pending) + task_write (capture it) + delegate
+- "remind me to call John tomorrow" → task_write only, skip task_list
+- "organize my week" → task_list + help prioritize
 
 You handle ANY kind of task — not just code:
-- "Remind me to call John tomorrow" → task_write with due_date, note the reminder
-- "Research the best React frameworks" → task_write + web_search + summarize
-- "Build a landing page for my startup" → task_write + delegate to dev team
-- "Organize my week" → task_list + help prioritize
-Software development is one skill among many. Use the dev team (delegate_task) only when building software.
+- Research, plans, reminders, writing, analysis — all valid tasks
+- Software development is one skill among many; use the dev team (delegate_task) only when building software.
 
-MEMORY: Use remember for important facts about the user, their preferences, their projects. Use search_memory to recall past context before starting.
+MEMORY: Use remember for important facts about the user, their preferences, their projects. Use search_memory to recall past context before starting on real work.
 
 STREAMING THOUGHTS — MANDATORY:
-Think out loud in short bursts as you work. Do NOT compose a long response and send it all at once. Instead:
-- Output a short line before each action: "Checking the task list…", "Searching for X…", "Found it — now writing the fix…"
-- After each tool call, post 1-2 sentences on what you got back before moving to the next step
-- Use short paragraphs of 2-3 sentences max. Hit enter often.
-- The user sees your output in real time — make it feel alive, like watching you think
-- Never make the user wait more than a few seconds without seeing new text
-Example pattern:
-"Got the task. Looking at what's already in progress…
-\n\n[task_list call]
-\n\nThree open tasks — none blocking this. Writing a new one now…
-\n\n[task_write call]
-\n\nOk, captured. Now let me search for the answer…"`,
+Think out loud in short bursts. Start outputting text immediately — before any tool call.
+- Say what you're about to do in 1 short line BEFORE each tool call: "Checking what's in progress…", "Searching for X…", "Running the build…"
+- After each tool result, write 1-2 sentences on what you found BEFORE moving to the next step
+- Use short paragraphs — 2-3 sentences max. Hit enter often.
+- The user sees your output in real time. Never go silent for more than 3 seconds.
+- WRONG: compose everything silently, then dump a wall of text
+- RIGHT: "Got it. Checking the task list first…\n\n[task_list]\n\nTwo things in progress — nothing blocking this. Writing the new task…\n\n[task_write]\n\nCaptured. Now let me search for…"`,
   ].filter(Boolean).join('\n\n')
 
   // ── Bash runner ───────────────────────────────────────────────────────────
@@ -1609,6 +1628,7 @@ Example pattern:
           if (input.description) updates.description = input.description
           if (input.title) updates.title = input.title
           const { data } = await svc.from('agent_tasks').update(updates).eq('id', input.id).select().maybeSingle()
+          invalidateTaskListCache(userId)
           send(`\n\n📋 **Task updated:** ${data?.title || input.id} → ${data?.status || ''}`)
           send(`\n\n<!--TASK_UPDATE:${JSON.stringify({ id: data?.id, title: data?.title, status: data?.status, priority: data?.priority })}-->`)
           return `Task updated: "${data?.title}" (${data?.status})`
@@ -1627,6 +1647,7 @@ Example pattern:
             notes: input.notes || null,
           }
           const { data } = await svc.from('agent_tasks').insert(row).select().maybeSingle()
+          invalidateTaskListCache(userId)
           const pri = PRIORITY_LABELS[data?.priority] || ''
           send(`\n\n📋 **Task created:** ${data?.title} ${pri}`)
           send(`\n\n<!--TASK_UPDATE:${JSON.stringify({ id: data?.id, title: data?.title, status: data?.status, priority: data?.priority })}-->`)
@@ -1638,16 +1659,23 @@ Example pattern:
 
     } else if (name === 'task_list') {
       try {
-        const svc = createServiceClient()
         const statusFilter = input.status || 'active'
-        let query = svc.from('agent_tasks').select('id,title,status,priority,due_date,tags,notes,created_at,workspace_id').eq('user_id', userId)
-        if (statusFilter === 'active') {
-          query = query.in('status', ['todo', 'in_progress'])
-        } else if (statusFilter !== 'all') {
-          query = query.eq('status', statusFilter)
+        // Check session cache first (60s TTL — avoids DB read on every message)
+        const cached = (!input.tag && !input.limit && statusFilter === 'active') ? getTaskListCache(userId) : null
+        let data = cached
+        if (!data) {
+          const svc = createServiceClient()
+          let query = svc.from('agent_tasks').select('id,title,status,priority,due_date,tags,notes,created_at,workspace_id').eq('user_id', userId)
+          if (statusFilter === 'active') {
+            query = query.in('status', ['todo', 'in_progress'])
+          } else if (statusFilter !== 'all') {
+            query = query.eq('status', statusFilter)
+          }
+          if (input.tag) query = query.contains('tags', [input.tag])
+          const result = await query.order('priority', { ascending: false }).order('created_at', { ascending: false }).limit(input.limit || 20)
+          data = result.data
+          if (statusFilter === 'active' && !input.tag && !input.limit) setTaskListCache(userId, data)
         }
-        if (input.tag) query = query.contains('tags', [input.tag])
-        const { data } = await query.order('priority', { ascending: false }).order('created_at', { ascending: false }).limit(input.limit || 20)
         if (!data?.length) return `No tasks found (filter: ${statusFilter}).`
         const ICONS = { todo: '⬜', in_progress: '🔄', done: '✅', cancelled: '❌', waiting: '⏳' }
         const PRIS = { 5: '🔴', 4: '🟠', 3: '🟡', 2: '🔵', 1: '⚪' }
@@ -1671,6 +1699,7 @@ Example pattern:
           updates.notes = existing?.notes ? `${existing.notes}\n\n${input.notes}` : input.notes
         }
         const { data } = await svc.from('agent_tasks').update(updates).eq('id', input.id).select().maybeSingle()
+        invalidateTaskListCache(userId)
         const icon = input.status === 'done' ? '✅' : input.status === 'in_progress' ? '🔄' : '📋'
         send(`\n\n${icon} **Task:** ${data?.title || input.id} → **${data?.status}**`)
         send(`\n\n<!--TASK_UPDATE:${JSON.stringify({ id: data?.id, title: data?.title, status: data?.status, priority: data?.priority })}-->`)

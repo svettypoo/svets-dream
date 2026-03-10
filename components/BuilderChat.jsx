@@ -324,6 +324,8 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         role: 'Senior Full-Stack Engineer', level: 1,
         description: 'Build exactly what the user requests. Report results and the preview URL directly to the user.',
       }
+      // Instant ACK — show empty bubble immediately before fetch even starts
+      setMessages(prev => [...prev, { role: 'assistant', content: '' }])
       try {
         const res = await fetch('/api/agent-chat', {
           method: 'POST',
@@ -339,7 +341,6 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let assistantText = ''
-        setMessages(prev => [...prev, { role: 'assistant', content: '' }])
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
@@ -386,6 +387,8 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
       dispatchActivity(ctoNode?.label || 'CTO', 'thinking', 'Reading VISION.md...')
       dispatchAgentStatus(ctoNode?.id || 'cto', true)
 
+      // Instant ACK — show empty bubble immediately before fetch even starts
+      setMessages(prev => [...prev, { role: 'assistant', content: '' }])
       try {
         const res = await fetch('/api/agent-chat', {
           method: 'POST',
@@ -403,7 +406,6 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let assistantText = ''
-        setMessages(prev => [...prev, { role: 'assistant', content: '' }])
 
         while (true) {
           const { done, value } = await reader.read()
