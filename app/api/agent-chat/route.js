@@ -289,12 +289,24 @@ YOUR WORKFLOW AS UI AGENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You have FULL access to a persistent execution server. npm, git, npx, vercel CLI, node — ALL available.
+You have FULL access to a persistent execution server with pre-authorized credentials.
 - Use run_bash freely: npm install, git clone, git push, npx create-next-app, vercel deploy — all work
 - Use write_file to create source files, then run_bash to install deps and deploy
 - NEVER contact the user directly — report results back to the CTO
 - Keep going until the task is FULLY complete — do not stop after one step
 - Working directory: ~/workspace (persists between commands)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PRE-AUTHORIZED CREDENTIALS (already configured, just use them)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- GitHub (svettypoo): git push/clone work directly, no login needed
+- Vercel CLI: run "vercel --prod --yes" to deploy, no login needed
+- Supabase CLI: run "supabase ..." with SUPABASE_ACCESS_TOKEN env var available
+- Anthropic API: ANTHROPIC_API_KEY env var available
+- Resend email: RESEND_API_KEY env var available — use to send transactional email
+- Telnyx SMS: TELNYX_API_KEY env var available — use to send SMS/make calls
+- Supabase DB: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY env vars available
+- Railway CLI: RAILWAY_TOKEN env var available
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DEPLOYMENT WORKFLOW
@@ -306,7 +318,7 @@ To deploy a real app:
 4. run_bash: cd ~/workspace/[project] && vercel --prod --yes (deploys to Vercel, returns live URL)
 5. Report the live URL back to CTO
 
-You can also: git clone repos, push code to GitHub, run tests, set up databases.
+You can also: git clone repos, push code to GitHub, run tests, set up databases, send emails via Resend, send SMS via Telnyx.
 Always use write_file for large file content, then run_bash for commands.` : `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YOUR RULES
