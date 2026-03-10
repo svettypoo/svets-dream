@@ -23,29 +23,11 @@ function log(msg) {
   console.log(`[setup] ${msg}`)
 }
 
-// ── 1. Install CLIs (skip if already installed) ──────────────────────────────
-log('Checking CLIs...')
-
-const clis = [
-  { bin: 'vercel', pkg: 'vercel' },
-  { bin: 'railway', pkg: '@railway/cli' },
-  { bin: 'supabase', pkg: 'supabase' },
-  { bin: 'gh', pkg: null }, // GitHub CLI — installed via apt or skip
-]
-
-for (const { bin, pkg } of clis) {
-  const exists = run(`which ${bin}`)
-  if (exists && !exists.includes('not found') && !exists.includes('error')) {
-    log(`  ${bin}: already installed`)
-    continue
-  }
-  if (!pkg) {
-    log(`  ${bin}: skipping (not npm-installable)`)
-    continue
-  }
-  log(`  Installing ${pkg}...`)
-  const result = run(`npm install -g ${pkg} --quiet 2>&1`)
-  log(`  ${pkg}: ${result.slice(0, 80)}`)
+// ── 1. Log available CLIs ─────────────────────────────────────────────────────
+log('Available CLIs:')
+for (const bin of ['node', 'npm', 'git', 'vercel', 'railway', 'python3', 'curl']) {
+  const loc = run(`which ${bin} 2>/dev/null || echo "not found"`)
+  log(`  ${bin}: ${loc}`)
 }
 
 // ── 2. Configure GitHub credentials ──────────────────────────────────────────
