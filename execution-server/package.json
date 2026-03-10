@@ -4,7 +4,7 @@
   "description": "Persistent bash execution server for Svet's Dream AI agents",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node setup.js && node server.js",
     "dev": "EXEC_TOKEN=dev-token node server.js"
   },
   "engines": {
