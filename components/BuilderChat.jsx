@@ -198,7 +198,7 @@ function dispatchAgentStatus(agentId, active) {
 const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
   const [view, setView] = useState('builder')
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: "Welcome to Svet's Dream.\n\nWhat do you want to build? Describe your idea and I'll assemble your team." },
+    { role: 'assistant', content: "Hi, I'm Svet's Dream — your AI assistant.\n\nTell me what you need. I'll track it as a task and get it done. I can research, write, plan, coordinate, or build software — whatever the task calls for." },
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -330,6 +330,11 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
           if (done) break
           const chunk = decoder.decode(value, { stream: true })
           assistantText += chunk
+          // Parse TASK markers (quick mode)
+          const taskUpdateMatches = [...assistantText.matchAll(/<!--TASK_UPDATE:(\{[^>]+\})-->/g)]
+          taskUpdateMatches.forEach(m => { try { window.dispatchEvent(new CustomEvent('taskUpdate', { detail: JSON.parse(m[1]) })) } catch {} })
+          const taskListMatch = assistantText.match(/<!--TASK_LIST:(\[[^\]]*(?:\][^\]]*)*\])-->/)
+          if (taskListMatch) { try { window.dispatchEvent(new CustomEvent('taskList', { detail: JSON.parse(taskListMatch[1]) })) } catch {} }
           const display = assistantText
             .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
             .replace(/<!--PREVIEW_HTML:[A-Za-z0-9+/=]*-->/g, '')
@@ -338,6 +343,8 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             .replace(/<!--APPROVAL_REQUEST:[^>]*-->/g, '')
             .replace(/<!--STRUCTURED_OUTPUT:[^>]*-->/g, '')
             .replace(/<!--TOKEN_USAGE:\d+-->/g, '')
+            .replace(/<!--TASK_UPDATE:[^>]*-->/g, '')
+            .replace(/<!--TASK_LIST:[^>]*-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
           // Fire preview events
           const fileMatches = [...assistantText.matchAll(/<!--FILE_ENTRY:(\{[^>]+\})-->/g)]
@@ -431,6 +438,11 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
           if (approvalMatch) {
             try { setPendingApproval(JSON.parse(approvalMatch[1])) } catch {}
           }
+          // Parse TASK markers (CTO mode)
+          const taskUpdateMatchesCTO = [...assistantText.matchAll(/<!--TASK_UPDATE:(\{[^>]+\})-->/g)]
+          taskUpdateMatchesCTO.forEach(m => { try { window.dispatchEvent(new CustomEvent('taskUpdate', { detail: JSON.parse(m[1]) })) } catch {} })
+          const taskListMatchCTO = assistantText.match(/<!--TASK_LIST:(\[[^\]]*(?:\][^\]]*)*\])-->/)
+          if (taskListMatchCTO) { try { window.dispatchEvent(new CustomEvent('taskList', { detail: JSON.parse(taskListMatchCTO[1]) })) } catch {} }
           // Strip all markers before displaying
           const display = assistantText
             .replace(/<!--agent-(?:active|idle):[^>]*-->/g, '')
@@ -440,6 +452,8 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
             .replace(/<!--APPROVAL_REQUEST:[^>]*-->/g, '')
             .replace(/<!--STRUCTURED_OUTPUT:[^>]*-->/g, '')
             .replace(/<!--TOKEN_USAGE:\d+-->/g, '')
+            .replace(/<!--TASK_UPDATE:[^>]*-->/g, '')
+            .replace(/<!--TASK_LIST:[^>]*-->/g, '')
           setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content: display }])
         }
 

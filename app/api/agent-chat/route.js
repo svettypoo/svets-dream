@@ -546,6 +546,54 @@ export async function POST(req) {
     },
   ]
 
+  // ── Task management tools (OpenClaw-style — every request is a task) ────────
+  const taskWriteTool = {
+    name: 'task_write',
+    description: `Create a new task or update an existing one. Use this for EVERY significant thing the user asks you to do — capture work as a task first, then execute it. Tasks can be anything: software builds, research, reminders, follow-ups, plans. This is how you track all work across sessions.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task UUID to update (omit to create new)' },
+        title: { type: 'string', description: 'Short task title (e.g. "Build landing page for AcmeCo", "Research React alternatives")' },
+        description: { type: 'string', description: 'Full details: what needs to be done, why, acceptance criteria' },
+        status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'cancelled', 'waiting'], description: 'Task status (default: todo)' },
+        priority: { type: 'integer', minimum: 1, maximum: 5, description: '1=someday, 2=low, 3=normal, 4=high, 5=urgent' },
+        due_date: { type: 'string', description: 'Due date in YYYY-MM-DD format' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Categories e.g. ["code","client","personal","research"]' },
+        notes: { type: 'string', description: 'Progress notes, blockers, or next steps' },
+      },
+      required: ['title'],
+    },
+  }
+
+  const taskListTool = {
+    name: 'task_list',
+    description: 'List current tasks. Call at the start of conversations to see what is pending. Returns tasks sorted by priority then recency.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'cancelled', 'waiting', 'active', 'all'], description: 'Filter: "active" = todo+in_progress (default), "all" = everything' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Max tasks to return (default 20)' },
+        tag: { type: 'string', description: 'Filter by tag (e.g. "code", "personal")' },
+      },
+    },
+  }
+
+  const taskUpdateTool = {
+    name: 'task_update',
+    description: 'Update task status or append notes. Use after completing work or when status changes. Always mark tasks done when the work is finished.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Task UUID to update' },
+        status: { type: 'string', enum: ['todo', 'in_progress', 'done', 'cancelled', 'waiting'] },
+        notes: { type: 'string', description: 'Progress notes to append (added to existing notes)' },
+        priority: { type: 'integer', minimum: 1, maximum: 5 },
+      },
+      required: ['id'],
+    },
+  }
+
   // ── Cross-agent tools (available to everyone) ─────────────────────────────
   const rememberTool = {
     name: 'remember',
@@ -657,7 +705,7 @@ export async function POST(req) {
   }
 
   const baseTools = isTopAgent ? managerTools : implementerTools
-  const tools = [...baseTools, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, searchMemoryTool, blackboardReadTool, blackboardWriteTool, requestApprovalTool, structuredOutputTool, ...skillTools]
+  const tools = [...baseTools, taskWriteTool, taskListTool, taskUpdateTool, messageAgentTool, rememberTool, recallLogTool, saveProjectTool, searchMemoryTool, blackboardReadTool, blackboardWriteTool, requestApprovalTool, structuredOutputTool, ...skillTools]
 
   // ── System prompt ─────────────────────────────────────────────────────────
   const globalRules = rules
@@ -857,18 +905,29 @@ CRITICAL: Put the ENTIRE HTML in the "html" field of output_html. Do NOT just pu
     // 7. Long-term memories (injected last so they're closest to the conversation)
     memoriesPrompt || '',
 
-    // 8. Autonomy directive + chat visibility rule
+    // 8. Autonomy directive + task-first operating model
     `You are fully autonomous. Be direct and decisive. No hedging, no asking for permission.
-Use remember to save important facts. Use save_project after every deployment (name, live_url, github_repo). Use recall_log to review past work.
-Use message_agent to consult a peer directly. Use delegate_task to assign implementation work.
+
+TASK-FIRST OPERATING MODEL (like OpenClaw):
+Every request you receive is a task. Your job is to:
+1. Call task_list at the start of a conversation to see what is already pending
+2. Call task_write to capture the new task before doing work on it
+3. Execute the work (delegate, research, code, write, plan — whatever is needed)
+4. Call task_update to mark the task done when complete
+
+You handle ANY kind of task — not just code:
+- "Remind me to call John tomorrow" → task_write with due_date, note the reminder
+- "Research the best React frameworks" → task_write + web_search + summarize
+- "Build a landing page for my startup" → task_write + delegate to dev team
+- "Organize my week" → task_list + help prioritize
+Software development is one skill among many. Use the dev team (delegate_task) only when building software.
+
+MEMORY: Use remember for important facts about the user, their preferences, their projects. Use search_memory to recall past context before starting.
 
 CHAT VISIBILITY — MANDATORY:
-Every agent MUST post a brief chat message at the start and end of their work so the user knows who is working and what's happening.
-- START: First line of your response must be: "👋 **[Your Role]** here. [One sentence: what you're about to do.]"
-- END: Last line of your response must be: "✅ **[Your Role]** done. [One sentence: what you delivered.]"
-Example start: "👋 **Backend Programmer** here. Building the Meridian Estates landing page with hero section, listings grid, and contact form."
-Example end: "✅ **Backend Programmer** done. Full landing page written to ~/index.html and committed — preview loads automatically in the Preview tab."
-Never skip these. The user is watching and needs to know you're working.`,
+Every agent MUST post a brief message at the start and end of work so the user sees what is happening.
+- START: "👋 **[Your Role]** here. [One sentence: what you're about to do.]"
+- END: "✅ **[Your Role]** done. [One sentence: what you delivered.]"`,
   ].filter(Boolean).join('\n\n')
 
   // ── Bash runner ───────────────────────────────────────────────────────────
@@ -1428,6 +1487,95 @@ Never skip these. The user is watching and needs to know you're working.`,
         return data?.content || `No activity log found for ${date}.`
       } catch (err) {
         return `Error: ${err.message}`
+      }
+
+    // ── Task management handlers ───────────────────────────────────────────────
+    } else if (name === 'task_write') {
+      try {
+        const svc = createServiceClient()
+        const PRIORITY_LABELS = { 1: '⚪ someday', 2: '🔵 low', 3: '🟡 normal', 4: '🟠 high', 5: '🔴 urgent' }
+        if (input.id) {
+          // Update existing task
+          const updates = {}
+          if (input.status) updates.status = input.status
+          if (input.priority) updates.priority = input.priority
+          if (input.due_date) updates.due_date = input.due_date
+          if (input.tags) updates.tags = input.tags
+          if (input.notes) {
+            const { data: existing } = await svc.from('agent_tasks').select('notes').eq('id', input.id).maybeSingle()
+            updates.notes = existing?.notes ? `${existing.notes}\n\n${input.notes}` : input.notes
+          }
+          if (input.description) updates.description = input.description
+          if (input.title) updates.title = input.title
+          const { data } = await svc.from('agent_tasks').update(updates).eq('id', input.id).select().maybeSingle()
+          send(`\n\n📋 **Task updated:** ${data?.title || input.id} → ${data?.status || ''}`)
+          send(`\n\n<!--TASK_UPDATE:${JSON.stringify({ id: data?.id, title: data?.title, status: data?.status, priority: data?.priority })}-->`)
+          return `Task updated: "${data?.title}" (${data?.status})`
+        } else {
+          // Create new task
+          const row = {
+            user_id: userId,
+            title: input.title,
+            description: input.description || null,
+            status: input.status || 'todo',
+            priority: input.priority || 3,
+            due_date: input.due_date || null,
+            tags: input.tags || null,
+            workspace_id: workspaceId || null,
+            agent_id: agentId,
+            notes: input.notes || null,
+          }
+          const { data } = await svc.from('agent_tasks').insert(row).select().maybeSingle()
+          const pri = PRIORITY_LABELS[data?.priority] || ''
+          send(`\n\n📋 **Task created:** ${data?.title} ${pri}`)
+          send(`\n\n<!--TASK_UPDATE:${JSON.stringify({ id: data?.id, title: data?.title, status: data?.status, priority: data?.priority })}-->`)
+          return `Task created: "${data?.title}" (id: ${data?.id})`
+        }
+      } catch (err) {
+        return `task_write error: ${err.message}`
+      }
+
+    } else if (name === 'task_list') {
+      try {
+        const svc = createServiceClient()
+        const statusFilter = input.status || 'active'
+        let query = svc.from('agent_tasks').select('id,title,status,priority,due_date,tags,notes,created_at,workspace_id').eq('user_id', userId)
+        if (statusFilter === 'active') {
+          query = query.in('status', ['todo', 'in_progress'])
+        } else if (statusFilter !== 'all') {
+          query = query.eq('status', statusFilter)
+        }
+        if (input.tag) query = query.contains('tags', [input.tag])
+        const { data } = await query.order('priority', { ascending: false }).order('created_at', { ascending: false }).limit(input.limit || 20)
+        if (!data?.length) return `No tasks found (filter: ${statusFilter}).`
+        const ICONS = { todo: '⬜', in_progress: '🔄', done: '✅', cancelled: '❌', waiting: '⏳' }
+        const PRIS = { 5: '🔴', 4: '🟠', 3: '🟡', 2: '🔵', 1: '⚪' }
+        const lines = data.map(t => `${ICONS[t.status] || '?'} ${PRIS[t.priority] || ''} **${t.title}**${t.due_date ? ` (due ${t.due_date})` : ''}\n   id: ${t.id}${t.notes ? `\n   📝 ${t.notes.split('\n')[0].slice(0, 80)}` : ''}`)
+        const out = `**Tasks (${statusFilter}):**\n${lines.join('\n\n')}`
+        send(`\n\n${out}`)
+        send(`\n\n<!--TASK_LIST:${JSON.stringify(data.map(t => ({ id: t.id, title: t.title, status: t.status, priority: t.priority, due_date: t.due_date, tags: t.tags })))}-->`)
+        return out
+      } catch (err) {
+        return `task_list error: ${err.message}`
+      }
+
+    } else if (name === 'task_update') {
+      try {
+        const svc = createServiceClient()
+        const updates = {}
+        if (input.status) updates.status = input.status
+        if (input.priority) updates.priority = input.priority
+        if (input.notes) {
+          const { data: existing } = await svc.from('agent_tasks').select('notes').eq('id', input.id).maybeSingle()
+          updates.notes = existing?.notes ? `${existing.notes}\n\n${input.notes}` : input.notes
+        }
+        const { data } = await svc.from('agent_tasks').update(updates).eq('id', input.id).select().maybeSingle()
+        const icon = input.status === 'done' ? '✅' : input.status === 'in_progress' ? '🔄' : '📋'
+        send(`\n\n${icon} **Task:** ${data?.title || input.id} → **${data?.status}**`)
+        send(`\n\n<!--TASK_UPDATE:${JSON.stringify({ id: data?.id, title: data?.title, status: data?.status, priority: data?.priority })}-->`)
+        return `Task "${data?.title}" → ${data?.status}`
+      } catch (err) {
+        return `task_update error: ${err.message}`
       }
 
     } else if (skillTools.some(t => t.name === name)) {

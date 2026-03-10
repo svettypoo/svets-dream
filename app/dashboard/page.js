@@ -6,6 +6,7 @@ import BuilderChat from '@/components/BuilderChat'
 import AgentModal from '@/components/AgentModal'
 import ActivityFeed from '@/components/ActivityFeed'
 import BuilderPreview from '@/components/BuilderPreview'
+import TasksPanel from '@/components/TasksPanel'
 import { createClient } from '@/lib/supabase'
 import { getPreset, DEFAULT_PRESET_ID } from '@/lib/org-presets'
 
@@ -153,6 +154,7 @@ export default function Dashboard() {
   const [activeAgents, setActiveAgents] = useState(new Set())
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null)
   const [showActivity, setShowActivity] = useState(false)
+  const [showTasks, setShowTasks] = useState(true)
   const revealTimersRef = useRef([])
   const chartRef = useRef(null)
   const chatRef = useRef(null)
@@ -387,6 +389,11 @@ export default function Dashboard() {
           }}>{icon} {label}</a>
         ))}
         <div style={{ width: 1, height: 20, background: '#1e293b', margin: '0 4px' }} />
+        <button onClick={() => setShowTasks(v => !v)} style={{
+          fontSize: 11, color: showTasks ? '#a78bfa' : '#475569', background: 'transparent',
+          border: `1px solid ${showTasks ? 'rgba(167,139,250,0.3)' : '#1e293b'}`,
+          padding: '4px 9px', borderRadius: 6, cursor: 'pointer', transition: 'all 0.15s',
+        }}>📋 Tasks</button>
         <button onClick={() => setShowActivity(v => !v)} style={{
           fontSize: 11, color: showActivity ? '#a78bfa' : '#475569', background: 'transparent',
           border: `1px solid ${showActivity ? 'rgba(167,139,250,0.3)' : '#1e293b'}`,
@@ -433,6 +440,9 @@ export default function Dashboard() {
 
         {/* Build Preview — always visible */}
         <BuilderPreview visible={true} workspaceId={currentWorkspaceId} />
+
+        {/* Right: Tasks Panel — toggleable */}
+        {showTasks && <TasksPanel workspaceId={currentWorkspaceId} />}
 
         {/* Right: Activity Feed — toggleable */}
         {showActivity && <ActivityFeed />}
