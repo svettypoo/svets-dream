@@ -38,7 +38,10 @@ export default function BuilderPreview({ visible }) {
 
   if (!visible) return null
 
-  const files = entries.filter(e => e.type === 'file')
+  // Deduplicate by path — keep latest write only
+  const filesMap = {}
+  entries.filter(e => e.type === 'file').forEach(e => { filesMap[e.data.path] = e })
+  const files = Object.values(filesMap)
 
   return (
     <div style={{

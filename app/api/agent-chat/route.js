@@ -648,6 +648,14 @@ Use message_agent to consult a peer directly. Use delegate_task to assign implem
       try {
         mkdirSync(dirname(resolvedPath), { recursive: true })
         writeFileSync(resolvedPath, input.content, 'utf8')
+        // Mirror to Railway execution server so sub-agents can read it via bash
+        if (EXEC_SERVER_URL) {
+          fetch(`${EXEC_SERVER_URL}/write`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${EXEC_TOKEN}` },
+            body: JSON.stringify({ path: input.path, content: input.content }),
+          }).catch(() => {})
+        }
         send(`\n\n✅ Written: ${input.path}`)
         // If this is an HTML file, emit a preview marker
         if (input.path.endsWith('.html') && input.content) {
