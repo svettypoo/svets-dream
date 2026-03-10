@@ -602,6 +602,7 @@ For real work (build, deploy, research, write, fix), briefly acknowledge the tas
       try {
         const { query } = await import('@anthropic-ai/claude-agent-sdk')
         let lastText = ''
+        let streamedAny = false
         for await (const event of query({
           prompt,
           options: {
@@ -619,10 +620,10 @@ For real work (build, deploy, research, write, fix), briefly acknowledge the tas
             const ev = event.event
             if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
               const text = ev.delta.text
-              if (text && !res.writableEnded) res.write(text)
+              if (text && !res.writableEnded) { res.write(text); streamedAny = true }
             }
-          } else if (event.type === 'assistant') {
-            // Fallback: send full assistant text if we missed stream_events
+          } else if (event.type === 'assistant' && !streamedAny) {
+            // Fallback: send full text only if no stream_events arrived
             const content = event.message?.content
             if (Array.isArray(content)) {
               const newText = content.filter(b => b.type === 'text').map(b => b.text).join('')
