@@ -335,21 +335,35 @@ export default function Dashboard() {
 
       {/* Top bar */}
       <div style={{
-        height: 44, background: 'rgba(5,13,26,0.95)', borderBottom: '1px solid #0f172a',
-        display: 'flex', alignItems: 'center', padding: '0 16px', gap: 12, flexShrink: 0,
+        height: 44, background: 'rgba(5,13,26,0.97)', borderBottom: '1px solid #0f172a',
+        display: 'flex', alignItems: 'center', padding: '0 16px', gap: 8, flexShrink: 0,
         backdropFilter: 'blur(8px)',
       }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#a78bfa', letterSpacing: '-0.3px' }}>
-          ✦ Svet's Dream
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#a78bfa', letterSpacing: '-0.3px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 6, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', fontSize: 11, boxShadow: '0 2px 8px rgba(99,102,241,0.4)' }}>✦</span>
+          Svet&apos;s Dream
         </span>
         <span style={{ flex: 1 }} />
-        <a href="/billing" style={{ fontSize: 12, color: '#6366f1', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #6366f130' }}>💳 Billing</a>
-        <a href="/transactions" style={{ fontSize: 12, color: '#94a3b8', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #33333380' }}>📊 Transactions</a>
-        <a href="/vm" style={{ fontSize: 12, color: '#94a3b8', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #33333380' }}>🖥️ VMs</a>
-        <a href="/settings" style={{ fontSize: 12, color: '#94a3b8', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #33333380' }}>⚙️ Settings</a>
-        <a href="/setup" style={{ fontSize: 12, color: '#f59e0b', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #f59e0b30' }}>🚀 Setup</a>
-        {user && <span style={{ fontSize: 11, color: '#64748b' }}>{user.email}</span>}
-        <button onClick={handleSignOut} style={{ fontSize: 11, color: '#ef4444', background: 'transparent', border: '1px solid #ef444430', padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>
+        {/* Nav items — compact icon+label */}
+        {[
+          { href: '/billing', icon: '💳', label: 'Billing', accent: '#6366f1' },
+          { href: '/vm', icon: '🖥', label: 'VMs', accent: null },
+          { href: '/settings', icon: '⚙', label: 'Settings', accent: null },
+          { href: '/setup', icon: '🚀', label: 'Setup', accent: '#f59e0b' },
+        ].map(({ href, icon, label, accent }) => (
+          <a key={href} href={href} style={{
+            fontSize: 11, color: accent || '#64748b', textDecoration: 'none',
+            padding: '4px 9px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 4,
+            border: `1px solid ${accent ? accent + '25' : '#1e293b'}`,
+            transition: 'color 0.15s, border-color 0.15s',
+          }}>{icon} {label}</a>
+        ))}
+        <div style={{ width: 1, height: 20, background: '#1e293b', margin: '0 4px' }} />
+        {user && <span style={{ fontSize: 10, color: '#334155', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</span>}
+        <button onClick={handleSignOut} style={{ fontSize: 11, color: '#64748b', background: 'transparent', border: '1px solid #1e293b', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', transition: 'color 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+          onMouseLeave={e => e.currentTarget.style.color = '#64748b'}
+        >
           Sign out
         </button>
       </div>
@@ -371,14 +385,14 @@ export default function Dashboard() {
 
         {/* Center: Org Chart */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-          <div style={{ height: 48, borderBottom: '1px solid #0f172a', background: 'rgba(5,13,26,0.9)', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 12 }}>
-            <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>
+          <div style={{ height: 36, borderBottom: '1px solid #0f172a', background: 'rgba(5,13,26,0.9)', display: 'flex', alignItems: 'center', padding: '0 16px', gap: 10 }}>
+            <span style={{ fontSize: 11, color: activeTab?.orgData?.nodes?.length ? '#475569' : '#334155', fontWeight: 500 }}>
               {activeTab?.orgData?.nodes?.length
-                ? `${activeTab.orgData.nodes.filter(n => n.id !== 'rules').length} agents · Click any node to chat`
-                : 'Tell us what you want to build'}
+                ? `${activeTab.orgData.nodes.filter(n => n.id !== 'rules').length} agents assembled · click to chat`
+                : 'Agent org chart will appear here after you describe what to build'}
             </span>
             {activeTab?.orgData && (
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: '#a78bfa', background: '#a78bfa15', padding: '3px 10px', borderRadius: 20, fontWeight: 600 }}>Live</span>
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#a78bfa', background: '#a78bfa12', padding: '2px 9px', borderRadius: 20, fontWeight: 700, letterSpacing: '0.05em' }}>LIVE</span>
             )}
           </div>
           <OrgChart ref={chartRef} orgData={activeTab?.orgData} onNodeClick={setSelectedAgent} introNodeIds={introNodeIds} agentChats={agentChats} activeAgents={activeAgents} />
