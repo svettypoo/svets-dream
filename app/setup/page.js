@@ -49,7 +49,7 @@ export default function SetupPage() {
   const allGood = status && status.supabase?.ok && status.docker?.ok && status.bash?.ok && Object.values(status.env || {}).every(Boolean)
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', padding: '40px 24px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #060d1b 0%, #03080f 100%)', padding: '40px 24px', fontFamily: 'system-ui, sans-serif', overflowY: 'auto' }}>
       <div style={{ maxWidth: 640, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
           <a href="/dashboard" style={{ color: '#6366f1', textDecoration: 'none', fontSize: 13 }}>← Dashboard</a>
