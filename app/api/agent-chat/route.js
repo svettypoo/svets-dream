@@ -45,7 +45,9 @@ export async function POST(req) {
   const isUIAgent = /ui\s*agent|design|ux|front.?end/i.test(agent.role || '') || /ui\s*agent/i.test(agent.label || '')
   const agentId = agent.id || agent.label
 
-  // ── Load memories + skills from Supabase ──────────────────────────────────
+  // ── Load profile (SOUL.md + AGENTS.md), memories, skills from Supabase ──────
+  let soulMd = ''        // OpenClaw SOUL.md equivalent — injected FIRST
+  let agentsMd = ''      // OpenClaw AGENTS.md equivalent — operational instructions
   let memoriesPrompt = ''
   let skillTools = []
   let skillInstructions = ''
@@ -53,6 +55,16 @@ export async function POST(req) {
   if (userId) {
     try {
       const svc = createServiceClient()
+
+      // Load persistent agent profile (SOUL.md + AGENTS.md)
+      const { data: profile } = await svc
+        .from('agent_profiles')
+        .select('soul_md, agents_md')
+        .eq('user_id', userId)
+        .eq('agent_id', agentId)
+        .maybeSingle()
+      if (profile?.soul_md) soulMd = profile.soul_md
+      if (profile?.agents_md) agentsMd = profile.agents_md
 
       // Load top 20 memories (highest importance + most recent)
       const { data: memories } = await svc
@@ -65,7 +77,7 @@ export async function POST(req) {
         .limit(20)
 
       if (memories?.length) {
-        memoriesPrompt = `\n\n## Long-term Memory (things I know)\n${memories.map(m => `[${m.type}] ${m.content}`).join('\n')}`
+        memoriesPrompt = `\n\n## Long-term Memory\n${memories.map(m => `[${m.type}] ${m.content}`).join('\n')}`
       }
 
       // Load skills assigned to this agent
@@ -90,6 +102,22 @@ export async function POST(req) {
     ?.join('\n') || ''
 
   // ── Tool definitions ──────────────────────────────────────────────────────
+  // message_agent: OpenClaw sessions_send equivalent — direct synchronous A2A messaging
+  // Any agent can send a direct message to any other agent and get a reply (up to maxTurns ping-pong)
+  const messageAgentTool = {
+    name: 'message_agent',
+    description: `Send a direct message to another agent and receive their reply. Use this for peer-to-peer consultation, getting a second opinion, or coordinating with a specialist without fully delegating a task.\n\nSupports up to 5 back-and-forth turns.\n\nYour team:\n${teamRoster || '(no team members)'}`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Agent label or id to message (e.g. "UI Agent", "Backend Programmer")' },
+        message: { type: 'string', description: 'Your message to the agent' },
+        maxTurns: { type: 'integer', minimum: 1, maximum: 5, description: 'Max ping-pong turns (default 1, max 5). Use >1 for back-and-forth dialogue.' },
+      },
+      required: ['to', 'message'],
+    },
+  }
+
   const managerTools = [
     {
       name: 'delegate_task',
@@ -208,7 +236,7 @@ export async function POST(req) {
   }
 
   const baseTools = isTopAgent ? managerTools : implementerTools
-  const tools = [...baseTools, rememberTool, recallLogTool, ...skillTools]
+  const tools = [...baseTools, messageAgentTool, rememberTool, recallLogTool, ...skillTools]
 
   // ── System prompt ─────────────────────────────────────────────────────────
   const globalRules = rules
@@ -301,16 +329,38 @@ REQUIRED STEPS:
 CRITICAL: Put the ENTIRE HTML in the "html" field of output_html. Do NOT just put the path. Do NOT stream it as text first.
 DO NOT attempt npm install, git push, or running a server.` : ''
 
-  const systemPrompt = `You are ${agent.label}, an AI agent with the role of ${agent.role}.
+  // OpenClaw context assembly order: SOUL.md → AGENTS.md → role/workflow → skills → org → memories
+  const systemPrompt = [
+    // 1. SOUL.md — personality, values, communication style (injected first like OpenClaw)
+    soulMd
+      ? `## Soul\n${soulMd}`
+      : `You are ${agent.label}.`,
 
-${agent.description}
-${ctoWorkflow}${uiWorkflow}${implementerInstructions}${skillInstructions}
+    // 2. AGENTS.md — operational instructions override (if user has customized this agent)
+    agentsMd
+      ? `## Instructions\n${agentsMd}`
+      : `Role: ${agent.role}\n\n${agent.description}`,
 
-${globalRules}Org context:
-${orgContext ? JSON.stringify(orgContext.nodes?.map(n => ({ id: n.id, label: n.label, role: n.role, level: n.level })), null, 2) : 'Standalone agent.'}
-${memoriesPrompt}
-You are fully autonomous. Be direct and decisive. No hedging, no asking for permission, no vague language.
-Use the remember tool to save important facts. Use recall_log to look back at past work.`
+    // 3. Built-in workflow instructions (CTO / UI agent / implementer)
+    ctoWorkflow || uiWorkflow || implementerInstructions || '',
+
+    // 4. Skills instructions
+    skillInstructions || '',
+
+    // 5. Global rules
+    globalRules || '',
+
+    // 6. Org context
+    `## Team\n${orgContext ? JSON.stringify(orgContext.nodes?.map(n => ({ id: n.id, label: n.label, role: n.role, level: n.level })), null, 2) : 'Standalone agent.'}`,
+
+    // 7. Long-term memories (injected last so they're closest to the conversation)
+    memoriesPrompt || '',
+
+    // 8. Autonomy directive
+    `You are fully autonomous. Be direct and decisive. No hedging, no asking for permission.
+Use remember to save important facts. Use recall_log to review past work.
+Use message_agent to consult a peer directly. Use delegate_task to assign implementation work.`,
+  ].filter(Boolean).join('\n\n')
 
   // ── Bash runner ───────────────────────────────────────────────────────────
   const { existsSync } = await import('fs')
@@ -508,6 +558,68 @@ Use the remember tool to save important facts. Use recall_log to look back at pa
         return `Error: ${err.message}`
       }
     }
+
+    } else if (name === 'message_agent') {
+      // OpenClaw sessions_send equivalent — direct synchronous peer-to-peer messaging
+      if (_delegationDepth >= MAX_DELEGATION_DEPTH) {
+        return 'Message blocked: max agent depth reached.'
+      }
+
+      const targetAgent = orgContext?.nodes?.find(n =>
+        n.id === input.to ||
+        n.id?.toLowerCase() === input.to?.toLowerCase() ||
+        n.label?.toLowerCase() === input.to?.toLowerCase() ||
+        n.label?.toLowerCase().includes(input.to?.toLowerCase())
+      )
+      if (!targetAgent) return `Agent "${input.to}" not found. Available: ${teamRoster}`
+
+      const maxTurns = Math.min(input.maxTurns || 1, 5)
+      send(`\n\n💬 **${agent.label} → ${targetAgent.label}:** ${input.message.slice(0, 120)}${input.message.length > 120 ? '...' : ''}`)
+      send(`\n<!--agent-active:${targetAgent.id}-->`)
+
+      let pingPongMessages = [{ role: 'user', content: input.message }]
+      let lastReply = ''
+
+      for (let turn = 0; turn < maxTurns; turn++) {
+        try {
+          const res = await fetch(`${origin}/api/agent-chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Cookie: cookie },
+            body: JSON.stringify({
+              agent: targetAgent,
+              messages: pingPongMessages,
+              orgContext,
+              rules,
+              _delegationDepth: _delegationDepth + 1,
+            }),
+          })
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let replyText = ''
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            const chunk = decoder.decode(value, { stream: true })
+            replyText += chunk
+            send(chunk)
+          }
+          lastReply = replyText.replace(/<!--[^>]*-->/g, '').trim()
+
+          // For multi-turn: add reply and prompt next turn only if caller has more to say
+          if (turn < maxTurns - 1 && lastReply) {
+            pingPongMessages.push({ role: 'assistant', content: lastReply })
+            // Multi-turn stops unless there's a follow-up — just one turn by default
+            break
+          }
+        } catch (err) {
+          send(`\n\n❌ Message error: ${err.message}`)
+          lastReply = `Error: ${err.message}`
+          break
+        }
+      }
+
+      send(`\n<!--agent-idle:${targetAgent.id}-->`)
+      return lastReply.slice(0, 5000) || 'No reply.'
 
     } else if (name === 'remember') {
       if (!userId) return 'Memory not saved — no active user session.'

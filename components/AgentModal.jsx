@@ -126,6 +126,10 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [memories, setMemories] = useState([])
   const [memoriesLoaded, setMemoriesLoaded] = useState(false)
+  const [soulMd, setSoulMd] = useState('')
+  const [agentsMd, setAgentsMd] = useState('')
+  const [profileLoaded, setProfileLoaded] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
   const bottomRef = useRef(null)
   const abortRef = useRef(null)
   const supabase = createClient()
@@ -150,6 +154,42 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
     }
     loadHistory()
   }, [agent.id, agent.label])
+
+  // Load agent profile (SOUL.md + AGENTS.md) when soul view opens
+  useEffect(() => {
+    if (view !== 'soul' || profileLoaded) return
+    async function loadProfile() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const agentId = agent.id || agent.label
+      const { data } = await supabase
+        .from('agent_profiles')
+        .select('soul_md, agents_md')
+        .eq('agent_id', agentId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      setSoulMd(data?.soul_md || '')
+      setAgentsMd(data?.agents_md || '')
+      setProfileLoaded(true)
+    }
+    loadProfile()
+  }, [view])
+
+  async function saveProfile() {
+    setSavingProfile(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setSavingProfile(false); return }
+    const agentId = agent.id || agent.label
+    await supabase.from('agent_profiles').upsert({
+      user_id: user.id,
+      agent_id: agentId,
+      agent_label: agent.label,
+      soul_md: soulMd,
+      agents_md: agentsMd,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,agent_id' })
+    setSavingProfile(false)
+  }
 
   // Load memories when memory view is opened
   useEffect(() => {
@@ -433,14 +473,14 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
           background: 'rgba(99,102,241,0.08)',
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          {(view === 'chat' || view === 'memory') && (
+          {(view === 'chat' || view === 'memory' || view === 'soul') && (
             <button onClick={() => setView('resume')} style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: '#475569', fontSize: 18, padding: '0 4px', lineHeight: 1,
             }} title="Back to profile">←</button>
           )}
           <div style={{ fontSize: 12, fontWeight: 600, color: view === 'resume' ? '#6366f1' : '#e2e8f0' }}>
-            {view === 'resume' ? 'Agent Profile' : view === 'memory' ? `${agent.label} — Memory` : agent.label}
+            {view === 'resume' ? 'Agent Profile' : view === 'memory' ? `${agent.label} — Memory` : view === 'soul' ? `${agent.label} — Soul` : agent.label}
           </div>
           {view === 'chat' && loading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
@@ -455,13 +495,22 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             {view === 'resume' && (
-              <button onClick={() => setView('memory')} title="View memory" style={{
-                background: 'none', border: '1px solid #1e293b', cursor: 'pointer',
-                fontSize: 10, color: '#64748b', padding: '3px 8px', borderRadius: 6,
-                fontWeight: 600,
-              }} onMouseOver={e => e.target.style.color='#a78bfa'} onMouseOut={e => e.target.style.color='#64748b'}>
-                🧠 Memory
-              </button>
+              <>
+                <button onClick={() => setView('soul')} title="Edit Soul & Instructions" style={{
+                  background: 'none', border: '1px solid #1e293b', cursor: 'pointer',
+                  fontSize: 10, color: '#64748b', padding: '3px 8px', borderRadius: 6,
+                  fontWeight: 600,
+                }} onMouseOver={e => e.target.style.color='#f59e0b'} onMouseOut={e => e.target.style.color='#64748b'}>
+                  ✦ Soul
+                </button>
+                <button onClick={() => setView('memory')} title="View memory" style={{
+                  background: 'none', border: '1px solid #1e293b', cursor: 'pointer',
+                  fontSize: 10, color: '#64748b', padding: '3px 8px', borderRadius: 6,
+                  fontWeight: 600,
+                }} onMouseOver={e => e.target.style.color='#a78bfa'} onMouseOut={e => e.target.style.color='#64748b'}>
+                  🧠 Memory
+                </button>
+              </>
             )}
             {view === 'chat' && (
               <button onClick={async () => {
@@ -486,7 +535,67 @@ export default function AgentModal({ agent, orgData, rulesDescription, onClose, 
           </div>
         </div>
 
-        {view === 'memory' ? (
+        {view === 'soul' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', scrollbarWidth: 'none', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.6 }}>
+              <strong style={{ color: '#f59e0b' }}>Soul</strong> defines who {agent.label} is — personality, values, tone. Injected first into every conversation.{' '}
+              <strong style={{ color: '#6366f1' }}>Instructions</strong> define what they do — workflows, rules, constraints.
+            </div>
+
+            <div>
+              <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                SOUL.MD — Personality & Values
+              </div>
+              <textarea
+                value={soulMd}
+                onChange={e => setSoulMd(e.target.value)}
+                placeholder={`Describe ${agent.label}'s personality, values, communication style, and tone.\n\nExample:\n${agent.label} is direct, opinionated, and doesn't sugarcoat feedback. They value precision over politeness. They speak in short sentences and call out bad work immediately.`}
+                style={{
+                  width: '100%', minHeight: 140, padding: '10px 12px',
+                  background: '#0d1526', border: '1px solid #1e293b', borderRadius: 8,
+                  color: '#e2e8f0', fontSize: 12, lineHeight: 1.65,
+                  fontFamily: 'monospace', resize: 'vertical', outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+                onFocus={e => e.target.style.borderColor = '#f59e0b'}
+                onBlur={e => e.target.style.borderColor = '#1e293b'}
+              />
+            </div>
+
+            <div>
+              <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                AGENTS.MD — Custom Instructions (overrides defaults)
+              </div>
+              <textarea
+                value={agentsMd}
+                onChange={e => setAgentsMd(e.target.value)}
+                placeholder={`Override ${agent.label}'s default workflow instructions.\n\nLeave blank to use defaults. When filled, this replaces the built-in role instructions entirely.`}
+                style={{
+                  width: '100%', minHeight: 120, padding: '10px 12px',
+                  background: '#0d1526', border: '1px solid #1e293b', borderRadius: 8,
+                  color: '#e2e8f0', fontSize: 12, lineHeight: 1.65,
+                  fontFamily: 'monospace', resize: 'vertical', outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+                onFocus={e => e.target.style.borderColor = '#6366f1'}
+                onBlur={e => e.target.style.borderColor = '#1e293b'}
+              />
+            </div>
+
+            <button
+              onClick={saveProfile}
+              disabled={savingProfile}
+              style={{
+                padding: '11px 20px', borderRadius: 10, border: 'none',
+                background: savingProfile ? '#1e293b' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: savingProfile ? '#475569' : '#fff',
+                fontWeight: 700, fontSize: 13, cursor: savingProfile ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {savingProfile ? 'Saving...' : 'Save Soul & Instructions'}
+            </button>
+          </div>
+        ) : view === 'memory' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', scrollbarWidth: 'none' }}>
             <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
               Long-term Memory — {memories.length} {memories.length === 1 ? 'entry' : 'entries'}
