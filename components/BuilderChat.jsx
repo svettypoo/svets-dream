@@ -496,7 +496,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                   <button
                     key={i}
                     className="prompt-chip"
-                    onClick={() => { setInput(p.text); }}
+                    onClick={() => { setInput(p.text); setTimeout(() => { setInput(''); sendText(p.text) }, 0) }}
                     style={{
                       background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.25)',
                       borderRadius: 8, padding: '9px 12px', color: '#7c8db0',
@@ -552,15 +552,17 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
                 onFocus={e => e.target.style.borderColor = '#6366f1'}
                 onBlur={e => e.target.style.borderColor = '#1e3a5f'}
               />
-              <button onClick={send} disabled={!input.trim()} style={{
+              <button onClick={send} disabled={!input.trim() || loading} title="Send (Enter)" style={{
                 position: 'absolute', right: 8, bottom: 8,
-                width: 32, height: 32, borderRadius: 8, border: 'none',
-                background: !input.trim() ? '#1e293b' : loading ? 'rgba(99,102,241,0.5)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-                color: !input.trim() ? '#334155' : '#fff',
-                fontWeight: 700, fontSize: 14, cursor: !input.trim() ? 'not-allowed' : 'pointer',
+                width: 34, height: 34, borderRadius: 9, border: 'none',
+                background: !input.trim() || loading ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                color: !input.trim() || loading ? '#334155' : '#fff',
+                fontWeight: 700, fontSize: 16, cursor: !input.trim() || loading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.15s', boxShadow: input.trim() ? '0 2px 8px rgba(99,102,241,0.4)' : 'none',
-              }}>{loading ? '•••' : '↑'}</button>
+                transition: 'all 0.2s',
+                boxShadow: input.trim() && !loading ? '0 2px 10px rgba(99,102,241,0.5)' : 'none',
+                transform: input.trim() && !loading ? 'scale(1.05)' : 'scale(1)',
+              }}>{loading ? <span style={{ fontSize: 10, letterSpacing: 1 }}>•••</span> : '↑'}</button>
             </div>
             <div style={{ fontSize: 9.5, color: '#334155', marginTop: 4, textAlign: 'right', paddingRight: 4 }}>⏎ send · Shift+⏎ newline</div>
           </div>

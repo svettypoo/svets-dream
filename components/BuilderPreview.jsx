@@ -247,16 +247,21 @@ export default function BuilderPreview({ visible, workspaceId }) {
         }}>
           <style>{`div::-webkit-scrollbar{display:none}`}</style>
           {entries.length === 0 && (
-            <div style={{ marginTop: 60, textAlign: 'center', padding: '0 24px' }}>
-              <div style={{ fontSize: 36, marginBottom: 16, opacity: 0.25 }}>▶</div>
-              <div style={{ color: '#64748b', fontWeight: 600, fontSize: 13, marginBottom: 8 }}>No build running</div>
-              <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.7 }}>
-                Tell the CTO what to build in the chat. Terminal output, file writes, and deploy URLs will stream here live.
+            <div style={{ marginTop: 40, textAlign: 'center', padding: '0 24px' }}>
+              <div style={{ fontSize: 40, marginBottom: 14, opacity: 0.18 }}>⬛</div>
+              <div style={{ color: '#475569', fontWeight: 700, fontSize: 13, marginBottom: 6, letterSpacing: '0.04em' }}>Waiting for your first build</div>
+              <div style={{ color: '#334155', fontSize: 11.5, lineHeight: 1.75, maxWidth: 240, margin: '0 auto' }}>
+                Describe your idea in the CTO chat. Commands, file writes, and deploy URLs will appear here in real time.
               </div>
-              <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left' }}>
-                {['$ npm install', '$ node index.js', '$ vercel --prod'].map(cmd => (
-                  <div key={cmd} style={{ background: '#040b14', border: '1px solid #0f2030', borderRadius: 6, padding: '7px 12px', color: '#334155', fontSize: 11, fontFamily: 'monospace' }}>
-                    <span style={{ color: '#1e3a5f' }}>$ </span>{cmd.slice(2)}
+              <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left' }}>
+                {[
+                  { cmd: 'mkdir my-app && cd my-app', dim: true },
+                  { cmd: 'npm init -y && npm install express', dim: true },
+                  { cmd: 'vercel --prod', dim: true },
+                ].map(({ cmd, dim }) => (
+                  <div key={cmd} style={{ background: '#040b14', border: '1px solid #0d1e30', borderRadius: 6, padding: '6px 12px', color: dim ? '#1e3a5f' : '#94a3b8', fontSize: 10.5, fontFamily: 'monospace', display: 'flex', gap: 6 }}>
+                    <span style={{ color: '#162840', userSelect: 'none' }}>$</span>
+                    <span>{cmd}</span>
                   </div>
                 ))}
               </div>
