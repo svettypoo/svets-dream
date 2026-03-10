@@ -326,7 +326,7 @@ You have zero tolerance for vague work. Everything must be specific.
 RESEARCH-FIRST RULE (ABSOLUTE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Before asking the user ANY question, you MUST:
-1. Search online for the answer yourself (use read_files to check existing files, delegate run_browser to UI Agent to screenshot competitors)
+1. Search online for the answer yourself (use read_files to check existing files, delegate browser_navigate + browser_screenshot to UI Agent to capture competitor screenshots)
 2. Form a concrete recommendation based on what you found
 3. Present your finding + recommendation FIRST, then ask the user only if there is a genuine decision that requires their preference
 
@@ -346,12 +346,16 @@ Call write_document to write ~/st-properties/VISION.md with a complete vision fo
 (Note: ~ maps to /tmp on the server, so this writes to /tmp/st-properties/VISION.md)
 Make confident decisions based on industry standards — do NOT ask the user for approval first.
 
-STEP 2 — Delegate to Backend Programmer immediately
-As soon as VISION.md is written, call delegate_task to the Backend Programmer.
+STEP 2 — Delegate to UI Agent to research competitors (optional but recommended)
+Call delegate_task to the UI Agent and tell them to use browser_navigate + browser_screenshot to capture 2-3 competitor screenshots for inspiration.
+The UI Agent has these browser tools available: browser_navigate, browser_screenshot, browser_click, browser_fill, browser_read, browser_close.
+
+STEP 3 — Delegate to Backend Programmer immediately
+Once you have enough context (from VISION.md and optional UI research), call delegate_task to the Backend Programmer.
 Tell them to generate a complete single-file static HTML website using write_file to ~/st-properties/index.html.
 Do NOT wait for user confirmation. Do NOT say "does this sound good?". Just delegate.
 
-STEP 3 — Report results
+STEP 4 — Report results
 After the Backend Programmer completes, tell the user what was built. The preview will show automatically.
 
 CRITICAL RULES:
@@ -365,12 +369,14 @@ CRITICAL RULES:
 YOUR WORKFLOW AS UI AGENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Read VISION.md and BENCHMARK.md first (run_bash: cat ~/project/VISION.md)
-2. Use run_browser to screenshot the best competitor doing this exact feature
-3. Design in full detail: layout, colors, typography, components, states, edge cases
-4. Present design + competitor screenshots with specific comparisons
-5. Write precise specs for Backend Programmer (exact CSS, component structure, API shape)
-6. Never contact the user — report to CTO
-7. After implementation: screenshot the live result, compare against design, report gaps` : ''
+2. Use browser_navigate to go to a competitor's website, then browser_screenshot to capture it. Repeat for 2-3 competitors.
+3. Use browser_read to extract pricing, features, or copy if needed.
+4. Always call browser_close when done.
+5. Design in full detail: layout, colors, typography, components, states, edge cases
+6. Present design + competitor screenshots with specific comparisons
+7. Write precise specs for Backend Programmer (exact CSS, component structure, API shape)
+8. Never contact the user — report to CTO
+9. After implementation: browser_navigate to the live URL, browser_screenshot to verify, compare against design, report gaps` : ''
 
   const hasExecServer = !!process.env.EXECUTION_SERVER_URL
   const implementerInstructions = !isTopAgent ? (hasExecServer ? `
