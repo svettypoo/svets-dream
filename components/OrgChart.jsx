@@ -117,9 +117,10 @@ const OrgChartInner = forwardRef(function OrgChartInner({ orgData, onNodeClick, 
   if (!orgData?.nodes?.length) {
     return (
       <div style={{
-        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flex: 1, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexDirection: 'column', gap: 24,
-        background: 'radial-gradient(ellipse 80% 80% at 50% 50%, rgba(99,102,241,0.05) 0%, #070d1c 70%)',
+        background: 'radial-gradient(ellipse 80% 80% at 50% 50%, rgba(99,102,241,0.06) 0%, #070d1c 65%)',
+        minHeight: 0,
       }}>
         <style>{`
           @keyframes nodeFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
