@@ -145,8 +145,9 @@ const BASH = (() => {
   return 'bash'
 })()
 
-// Ensure workspace exists
+// Ensure workspace exists and is writable
 fs.mkdirSync(WORK_DIR, { recursive: true })
+try { fs.chmodSync(WORK_DIR, 0o777) } catch {}
 
 // ── Backup system ─────────────────────────────────────────────────────────────
 // Backups live in WORK_DIR/__BACKUPS__/<YYYY-MM-DD_HH-MM-SS>/
