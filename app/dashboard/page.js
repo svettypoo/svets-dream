@@ -9,7 +9,34 @@ import BuilderPreview from '@/components/BuilderPreview'
 import { createClient } from '@/lib/supabase'
 import { getPreset, DEFAULT_PRESET_ID } from '@/lib/org-presets'
 
-const OrgChart = dynamic(() => import('@/components/OrgChart'), { ssr: false })
+const OrgChart = dynamic(() => import('@/components/OrgChart'), {
+  ssr: false,
+  loading: () => (
+    <div style={{
+      flex: 1, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexDirection: 'column', gap: 20,
+      background: 'radial-gradient(ellipse 80% 80% at 50% 50%, rgba(99,102,241,0.06) 0%, #070d1c 65%)',
+    }}>
+      <svg width="220" height="160" viewBox="0 0 220 160" fill="none" style={{opacity:0.5}}>
+        <line x1="110" y1="38" x2="45" y2="90" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 2"/>
+        <line x1="110" y1="38" x2="110" y2="90" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 2"/>
+        <line x1="110" y1="38" x2="175" y2="90" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 2"/>
+        <rect x="82" y="10" width="56" height="28" rx="8" fill="rgba(99,102,241,0.3)" stroke="#6366f1" strokeWidth="1.5"/>
+        <rect x="92" y="18" width="20" height="3" rx="1.5" fill="#a78bfa"/>
+        <rect x="92" y="25" width="30" height="2" rx="1" fill="rgba(167,139,250,0.5)"/>
+        {[17, 82, 147].map((x, i) => (
+          <g key={i}><rect x={x} y="90" width="56" height="22" rx="6" fill="rgba(99,102,241,0.15)" stroke="rgba(99,102,241,0.4)" strokeWidth="1"/>
+          <rect x={x+10} y="96" width="14" height="3" rx="1.5" fill="rgba(167,139,250,0.7)"/>
+          <rect x={x+10} y="103" width="24" height="2" rx="1" fill="rgba(167,139,250,0.3)"/></g>
+        ))}
+      </svg>
+      <div style={{ textAlign: 'center', maxWidth: 240 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#c4b5fd', marginBottom: 6 }}>Your AI team assembles here</div>
+        <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.7 }}>Describe what you want to build in the chat.</div>
+      </div>
+    </div>
+  ),
+})
 
 function getDefaultOrg() {
   const presetId = typeof window !== 'undefined'
