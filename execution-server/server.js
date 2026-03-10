@@ -190,6 +190,22 @@ const BASH = (() => {
 fs.mkdirSync(WORK_DIR, { recursive: true })
 try { fs.chmodSync(WORK_DIR, 0o777) } catch {}
 
+// ── Block library sync ────────────────────────────────────────────────────────
+// Copies execution-server/blocks/ → /root/workspace/__BLOCKS__/ on every startup.
+// Agents read from __BLOCKS__/ to scaffold new apps.
+const BLOCKS_SRC = path.join(__dirname, 'blocks')
+const BLOCKS_DST = path.join(WORK_DIR, '__BLOCKS__')
+;(function syncBlocks() {
+  try {
+    if (fs.existsSync(BLOCKS_SRC)) {
+      execSync(`cp -r "${BLOCKS_SRC}/." "${BLOCKS_DST}"`, { timeout: 30000 })
+      console.log(`[blocks] synced to ${BLOCKS_DST}`)
+    }
+  } catch (e) {
+    console.error('[blocks] sync failed:', e.message)
+  }
+})()
+
 // ── Backup system ─────────────────────────────────────────────────────────────
 // Backups live in WORK_DIR/__BACKUPS__/<YYYY-MM-DD_HH-MM-SS>/
 // Each backup is a timestamped snapshot of everything in WORK_DIR (excluding __BACKUPS__ itself).
@@ -538,6 +554,124 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // POST /gemini — call Gemini API (text + vision)
+  // Body: { prompt, imageBase64?, mimeType?, model?, maxTokens? }
+  // Used for: UI analysis from screenshots, code generation, design suggestions
+  if (req.method === 'POST' && url.pathname === '/gemini') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const {
+          prompt,
+          imageBase64,
+          mimeType = 'image/png',
+          model = 'gemini-2.0-flash',
+          maxTokens = 8192,
+          temperature = 0.4,
+        } = JSON.parse(body)
+
+        if (!prompt && !imageBase64) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'prompt or imageBase64 required' }))
+          return
+        }
+
+        const GEMINI_KEY = process.env.GEMINI_API_KEY || 'AIzaSyDTdTISEF9sx4p2eJWmMdQSY0fsIcfZ7SM'
+        const parts = []
+        if (imageBase64) parts.push({ inlineData: { mimeType, data: imageBase64 } })
+        if (prompt) parts.push({ text: prompt })
+
+        const payload = JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { maxOutputTokens: maxTokens, temperature },
+        })
+
+        const apiPath = `/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`
+        const geminiRes = await new Promise((resolve, reject) => {
+          const https = require('https')
+          const reqOut = https.request({
+            hostname: 'generativelanguage.googleapis.com',
+            path: apiPath,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+          }, r => {
+            let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve(JSON.parse(d)) } catch { resolve({ error: d }) } })
+          })
+          reqOut.on('error', reject)
+          reqOut.write(payload)
+          reqOut.end()
+        })
+
+        const text = geminiRes?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        const finishReason = geminiRes?.candidates?.[0]?.finishReason || ''
+        console.log(`[gemini] model=${model} tokens=${geminiRes?.usageMetadata?.totalTokenCount} finish=${finishReason}`)
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, text, finishReason, model }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+    })
+    return
+  }
+
+  // POST /gemini-ui — send a screenshot to Gemini, get UI improvement suggestions or redesigned HTML
+  // Body: { screenshotBase64, task: 'analyze'|'redesign'|'code', context? }
+  if (req.method === 'POST' && url.pathname === '/gemini-ui') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const { screenshotBase64, task = 'analyze', context = '' } = JSON.parse(body)
+        if (!screenshotBase64) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'screenshotBase64 required' }))
+          return
+        }
+
+        const prompts = {
+          analyze: `Analyze this UI screenshot. Provide specific, actionable feedback on: (1) layout and visual hierarchy, (2) color and typography, (3) usability and UX patterns, (4) what to improve. Be concrete. ${context}`,
+          redesign: `You are a senior UI/UX designer. Look at this screenshot and write complete, production-ready HTML+CSS (Tailwind) that redesigns this interface to be significantly more modern, polished, and user-friendly. Output only the HTML file. ${context}`,
+          code: `Convert this UI screenshot into a complete React component using Tailwind CSS classes. Match the layout as closely as possible. Output only the React component code. ${context}`,
+        }
+
+        const GEMINI_KEY = process.env.GEMINI_API_KEY || 'AIzaSyDTdTISEF9sx4p2eJWmMdQSY0fsIcfZ7SM'
+        const payload = JSON.stringify({
+          contents: [{ parts: [
+            { inlineData: { mimeType: 'image/png', data: screenshotBase64 } },
+            { text: prompts[task] || prompts.analyze },
+          ]}],
+          generationConfig: { maxOutputTokens: 16384, temperature: 0.3 },
+        })
+
+        const geminiRes = await new Promise((resolve, reject) => {
+          const https = require('https')
+          const reqOut = https.request({
+            hostname: 'generativelanguage.googleapis.com',
+            path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+          }, r => {
+            let d = ''; r.on('data', c => d += c); r.on('end', () => { try { resolve(JSON.parse(d)) } catch { resolve({ error: d }) } })
+          })
+          reqOut.on('error', reject)
+          reqOut.write(payload)
+          reqOut.end()
+        })
+
+        const text = geminiRes?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, text, task }))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
+    })
+    return
+  }
+
   // POST /remember — save a fact to long-term memory (agent_memories Supabase table)
   // Body: { content: string, type?: string, importance?: number }
   // Called by the agent via curl localhost during a session
@@ -648,21 +782,31 @@ Think out loud in short bursts. Output a short line BEFORE each action. After ea
 For simple questions (under ~15 words asking for info), answer immediately — no task tracking needed.
 For real work (build, deploy, research, write, fix), briefly acknowledge the task and start working.`,
         `## Long-term Memory Tool (remember)
-Save important facts that should persist across future conversations using Bash:
+Save important facts using Bash:
+  curl -s -X POST http://localhost:${PORT}/remember -H "Authorization: Bearer ${EXEC_TOKEN}" -H "Content-Type: application/json" -d '{"content":"...","type":"fact","importance":2}'
+Types: preference|fact|project|pattern|credential — Importance: 1=critical 2=high 3=normal 4=low
+Use proactively: after completing work, learning preferences, finishing a build.`,
 
-  curl -s -X POST http://localhost:${PORT}/remember \\
-    -H "Authorization: Bearer ${EXEC_TOKEN}" \\
-    -H "Content-Type: application/json" \\
-    -d '{"content":"...","type":"fact","importance":2}'
+        `## Block Library — Reusable App Blocks
+Pre-built Next.js App Router blocks are at /root/workspace/__BLOCKS__/. When scaffolding a new app:
+1. Read /root/workspace/__BLOCKS__/manifest.json to see what's available
+2. Copy the relevant block files with: cp -r /root/workspace/__BLOCKS__/<block>/* /root/workspace/<project>/
+3. Replace {{APP_NAME}} and {{PLACEHOLDER}} tokens with actual values
+4. Run npm install in the project directory
 
-Types: preference | fact | project | pattern | credential
-Importance: 1=critical, 2=high, 3=normal, 4=low
+Available blocks: next-shell (foundation), supabase (DB client), auth-email (login/signup), dashboard-layout (sidebar nav), crud-table (DataTable component), crud-api (REST API route), ai-chat (streaming AI chat), landing (Hero+Features page), stripe (payments), file-upload (Supabase Storage), email-resend (Resend transactional email), env-template (.env.local)
 
-Use this proactively whenever you:
-- Complete something worth remembering (URLs, credentials, decisions)
-- Learn a preference or working style from Svet
-- Discover a pattern or solution that might apply again
-- Finish building something (record its URL + stack)`,
+ALWAYS start with next-shell + supabase when building a new Next.js app. Use blocks first, then customize.`,
+
+        `## Gemini UI Tool
+Analyze or redesign UI from screenshots using Gemini Vision:
+  curl -s -X POST http://localhost:${PORT}/gemini-ui -H "Authorization: Bearer ${EXEC_TOKEN}" -H "Content-Type: application/json" -d '{"screenshotBase64":"<base64>","task":"analyze"}'
+Tasks: analyze (UX feedback), redesign (returns full HTML/Tailwind redesign), code (returns React component)
+
+General Gemini queries (text or vision):
+  curl -s -X POST http://localhost:${PORT}/gemini -H "Authorization: Bearer ${EXEC_TOKEN}" -H "Content-Type: application/json" -d '{"prompt":"...","imageBase64":"<optional>","model":"gemini-2.0-flash"}'
+
+To take a screenshot for Gemini UI analysis, use Playwright via Bash, save as PNG, read as base64.`,
       ].filter(Boolean).join('\n\n')
 
       // Build conversation history as context prefix in the prompt

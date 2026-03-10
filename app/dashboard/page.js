@@ -378,6 +378,7 @@ export default function Dashboard() {
         <span style={{ flex: 1 }} />
         {/* Nav items — compact icon+label */}
         {[
+          { href: '/forge', icon: '⚒', label: 'Forge', accent: '#f59e0b' },
           { href: '/billing', icon: '💳', label: 'Billing', accent: '#6366f1' },
           { href: '/vm', icon: '🖥', label: 'VMs', accent: null },
           { href: '/settings', icon: '⚙', label: 'Settings', accent: null },

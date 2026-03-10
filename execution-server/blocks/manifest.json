@@ -1,0 +1,114 @@
+{
+  "version": "1.0.0",
+  "description": "Reusable frontend/backend blocks for rapid app scaffolding",
+  "blocks": [
+    {
+      "id": "next-shell",
+      "name": "Next.js App Shell",
+      "description": "package.json, next.config.js, Tailwind CSS, app/layout.js, globals.css",
+      "type": "foundation",
+      "files": ["next-shell/package.json", "next-shell/next.config.js", "next-shell/tailwind.config.js", "next-shell/app/layout.js", "next-shell/app/globals.css"],
+      "requires": [],
+      "tags": ["nextjs", "tailwind", "foundation"]
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase Client Setup",
+      "description": "Browser + server Supabase clients, middleware for session refresh",
+      "type": "infrastructure",
+      "files": ["supabase/lib/supabase-browser.js", "supabase/lib/supabase-server.js", "supabase/middleware.js"],
+      "requires": ["next-shell"],
+      "tags": ["supabase", "database", "infrastructure"]
+    },
+    {
+      "id": "auth-email",
+      "name": "Email + Password Auth",
+      "description": "Login page, signup page, forgot/reset password, logout API route",
+      "type": "auth",
+      "files": ["auth/app/login/page.js", "auth/app/signup/page.js", "auth/app/api/auth/route.js"],
+      "requires": ["supabase"],
+      "tags": ["auth", "login", "supabase"]
+    },
+    {
+      "id": "dashboard-layout",
+      "name": "Dashboard Layout",
+      "description": "Sidebar nav + header shell, mobile-responsive, slot for page content",
+      "type": "layout",
+      "files": ["dashboard/app/dashboard/layout.js", "dashboard/components/Sidebar.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["dashboard", "layout", "nav"]
+    },
+    {
+      "id": "crud-table",
+      "name": "CRUD Data Table",
+      "description": "DataTable component with sort, filter, pagination + add/edit/delete modals",
+      "type": "component",
+      "files": ["crud/components/DataTable.jsx"],
+      "requires": ["next-shell"],
+      "tags": ["crud", "table", "data"]
+    },
+    {
+      "id": "crud-api",
+      "name": "CRUD API Route",
+      "description": "GET/POST/PATCH/DELETE API route template wired to Supabase",
+      "type": "api",
+      "files": ["crud/app/api/template/route.js"],
+      "requires": ["supabase"],
+      "tags": ["crud", "api", "supabase"]
+    },
+    {
+      "id": "ai-chat",
+      "name": "AI Chat Component",
+      "description": "Streaming AI chat UI + API route using Claude (claude-sonnet-4-6)",
+      "type": "component",
+      "files": ["ai-chat/components/AiChat.jsx", "ai-chat/app/api/ai/route.js"],
+      "requires": ["next-shell"],
+      "tags": ["ai", "chat", "claude"]
+    },
+    {
+      "id": "landing",
+      "name": "Landing Page",
+      "description": "Hero section + features grid + CTA + footer — dark modern design",
+      "type": "page",
+      "files": ["landing/components/Hero.jsx", "landing/components/Features.jsx", "landing/app/page.js"],
+      "requires": ["next-shell"],
+      "tags": ["landing", "marketing", "hero"]
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe Payments",
+      "description": "Create payment intent, confirm, webhook handler, lib/stripe.js wrapper",
+      "type": "payment",
+      "files": ["stripe/lib/stripe.js", "stripe/app/api/stripe/route.js"],
+      "requires": ["supabase"],
+      "tags": ["stripe", "payment", "checkout"]
+    },
+    {
+      "id": "file-upload",
+      "name": "File Upload (Supabase Storage)",
+      "description": "Multipart upload API → Supabase Storage bucket → returns public URL",
+      "type": "api",
+      "files": ["file-upload/app/api/upload/route.js", "file-upload/components/FileUpload.jsx"],
+      "requires": ["supabase"],
+      "tags": ["upload", "storage", "files"]
+    },
+    {
+      "id": "email-resend",
+      "name": "Email Sending (Resend)",
+      "description": "lib/resend.js wrapper + transactional email API route template",
+      "type": "api",
+      "files": ["email-resend/lib/resend.js", "email-resend/app/api/email/route.js"],
+      "requires": ["next-shell"],
+      "tags": ["email", "resend", "notifications"]
+    },
+    {
+      "id": "env-template",
+      "name": "Environment Template",
+      "description": ".env.local template with all standard service vars pre-filled",
+      "type": "config",
+      "files": ["env-template/.env.local.template"],
+      "requires": [],
+      "tags": ["env", "config", "setup"]
+    }
+  ]
+}
