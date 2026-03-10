@@ -20,25 +20,8 @@ export async function POST(req) {
   const origin = `${reqUrl.protocol}//${reqUrl.host}`
   const cookie = req.headers.get('cookie') || ''
 
-  // Auth + budget check
-  let userId = null
-  try {
-    const supabase = await createServerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      userId = user.id
-      await checkBudget(userId)
-    }
-  } catch (budgetErr) {
-    const encoder = new TextEncoder()
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(`⛔ **Budget limit reached:** ${budgetErr.message}\n\nUpdate your limit at [Billing Settings](/billing).`))
-        controller.close()
-      }
-    })
-    return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
-  }
+  // Auth disabled — open access
+  const userId = null
 
   const isCTO = /cto|chief\s*tech/i.test(agent.role || '') || /cto/i.test(agent.label || '')
   const isTopAgent = (agent.level === 0 || agent.level === '0' || isCTO) && agent.id !== 'rules'

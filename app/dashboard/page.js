@@ -133,13 +133,7 @@ export default function Dashboard() {
   const tabsRef = useRef(tabs)
   useEffect(() => { tabsRef.current = tabs }, [tabs])
 
-  useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) router.push('/login')
-      else setUser(data.user)
-    })
-  }, [router])
+  // Auth disabled — open access
 
   // Show BuilderPreview when agents start executing on active tab
   useEffect(() => {
