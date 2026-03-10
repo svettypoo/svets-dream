@@ -107,6 +107,13 @@ async function handleBrowser(action, sessionId, params) {
       return { ok: true, text: text.slice(0, 8000), url, title }
     }
 
+    if (action === 'key_press') {
+      await page.keyboard.press(params.key || 'Enter')
+      await page.waitForLoadState('domcontentloaded').catch(() => {})
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, url: page.url(), screenshot: screenshot.toString('base64') }
+    }
+
     return { ok: false, error: `Unknown action: ${action}` }
   } catch (err) {
     return { ok: false, error: err.message }
