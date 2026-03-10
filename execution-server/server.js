@@ -598,16 +598,18 @@ For real work (build, deploy, research, write, fix), briefly acknowledge the tas
       const cwd = path.join(WORK_DIR, workspaceId)
       fs.mkdirSync(cwd, { recursive: true })
 
+      const CLI_PATH = path.join(__dirname, 'node_modules/@anthropic-ai/claude-code/cli.js')
       try {
         const { query } = await import('@anthropic-ai/claude-agent-sdk')
         let lastText = ''
         for await (const event of query({
           prompt,
           options: {
+            pathToClaudeCodeExecutable: CLI_PATH,
             cwd,
             systemPrompt,
             allowedTools: ['Bash', 'Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
-            permissionMode: 'bypassPermissions',
+            permissionMode: 'dontAsk',
             maxTurns: 25,
             abortController: controller,
             includePartialMessages: true,

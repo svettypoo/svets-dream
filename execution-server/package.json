@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.72",
+    "@anthropic-ai/claude-code": "^2.1.72",
     "playwright": "^1.49.0"
   },
   "engines": {
