@@ -29,6 +29,90 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 
+// ── Browser session manager ───────────────────────────────────────────────────
+// Keeps one Playwright browser context per sessionId so the page persists
+// across multiple tool calls within the same conversation.
+const browserSessions = new Map() // sessionId → { browser, context, page }
+
+async function getSession(sessionId) {
+  if (browserSessions.has(sessionId)) return browserSessions.get(sessionId)
+  const { chromium } = require('playwright')
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  })
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+  })
+  const page = await context.newPage()
+  const session = { browser, context, page }
+  browserSessions.set(sessionId, session)
+  return session
+}
+
+async function closeSession(sessionId) {
+  if (!browserSessions.has(sessionId)) return
+  const { browser } = browserSessions.get(sessionId)
+  await browser.close().catch(() => {})
+  browserSessions.delete(sessionId)
+}
+
+async function handleBrowser(action, sessionId, params) {
+  try {
+    if (action === 'close') {
+      await closeSession(sessionId)
+      return { ok: true, message: 'Browser session closed.' }
+    }
+
+    const session = await getSession(sessionId)
+    const { page } = session
+
+    if (action === 'navigate') {
+      await page.goto(params.url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      const title = await page.title()
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, title, url: page.url(), screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'screenshot') {
+      const screenshot = await page.screenshot({ type: 'png', fullPage: params.fullPage || false })
+      const title = await page.title()
+      return { ok: true, title, url: page.url(), screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'click') {
+      // Try selector first, then text match
+      try {
+        await page.click(params.selector, { timeout: 10000 })
+      } catch {
+        await page.getByText(params.selector).first().click({ timeout: 10000 })
+      }
+      await page.waitForLoadState('domcontentloaded').catch(() => {})
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, url: page.url(), screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'fill') {
+      await page.fill(params.selector, params.value, { timeout: 10000 })
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'read') {
+      const selector = params.selector || 'body'
+      const text = await page.locator(selector).innerText({ timeout: 10000 }).catch(() => '')
+      const url = page.url()
+      const title = await page.title()
+      return { ok: true, text: text.slice(0, 8000), url, title }
+    }
+
+    return { ok: false, error: `Unknown action: ${action}` }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+}
+
 const PORT = process.env.PORT || 3333
 const EXEC_TOKEN = process.env.EXEC_TOKEN || 'dev-token-change-in-prod'
 const HOME = process.env.HOME || os.homedir()
@@ -230,6 +314,25 @@ const server = http.createServer((req, res) => {
       res.writeHead(404, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: err.message }))
     }
+    return
+  }
+
+  // POST /browser — persistent browser session actions
+  if (req.method === 'POST' && url.pathname === '/browser') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const { action, sessionId = 'default', ...params } = JSON.parse(body)
+        console.log(`[exec-server] [${sessionId}] browser.${action}`)
+        const result = await handleBrowser(action, sessionId, params)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(result))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: false, error: err.message }))
+      }
+    })
     return
   }
 

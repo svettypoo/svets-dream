@@ -198,18 +198,67 @@ export async function POST(req) {
         required: ['command'],
       },
     },
+    // ── Browser tools (Option B: dedicated pre-built actions, persistent session) ──
     {
-      name: 'run_browser',
-      description: 'Automate a browser with Playwright: take screenshots, test UI, scrape pages, benchmark competitors.',
+      name: 'browser_navigate',
+      description: 'Open a URL in the browser. The session persists — the page stays open for follow-up clicks, reads, or screenshots. Always returns a screenshot of the loaded page.',
       input_schema: {
         type: 'object',
         properties: {
-          url: { type: 'string', description: 'URL to navigate to' },
-          description: { type: 'string', description: 'What you are doing' },
-          code: { type: 'string', description: 'Playwright JS code (page object is already available, return values are captured)' },
+          url: { type: 'string', description: 'Full URL to navigate to (e.g. https://example.com)' },
         },
-        required: ['url', 'description', 'code'],
+        required: ['url'],
       },
+    },
+    {
+      name: 'browser_screenshot',
+      description: 'Take a screenshot of the current browser page. Use after navigating, clicking, or filling to visually verify the result.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          fullPage: { type: 'boolean', description: 'Capture the full scrollable page (default false = visible viewport only)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'browser_click',
+      description: 'Click an element on the current page. Pass a CSS selector (e.g. "#submit-btn", "button.primary") or visible text (e.g. "Sign in"). Always returns a screenshot after clicking.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector or visible text of the element to click' },
+        },
+        required: ['selector'],
+      },
+    },
+    {
+      name: 'browser_fill',
+      description: 'Type text into an input field on the current page. Use a CSS selector to identify the field (e.g. "input[name=email]", "#search").',
+      input_schema: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector for the input field' },
+          value: { type: 'string', description: 'Text to type into the field' },
+        },
+        required: ['selector', 'value'],
+      },
+    },
+    {
+      name: 'browser_read',
+      description: 'Read the visible text content of the current page or a specific element. Use to extract data, verify content, or check what is on screen.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector to read from (default: entire page body)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'browser_close',
+      description: 'Close the browser session and free memory. Call this when you are done with all browser tasks.',
+      input_schema: { type: 'object', properties: {}, required: [] },
     },
   ]
 
@@ -621,31 +670,59 @@ Use message_agent to consult a peer directly. Use delegate_task to assign implem
         return `Error: ${err.message}`
       }
 
-    } else if (name === 'run_browser') {
-      send(`\n\n🌐 **Browser:** ${input.description}...`)
+    } else if (['browser_navigate', 'browser_screenshot', 'browser_click', 'browser_fill', 'browser_read', 'browser_close'].includes(name)) {
+      const execUrl = process.env.EXECUTION_SERVER_URL
+      if (!execUrl) {
+        return 'Browser tools require EXECUTION_SERVER_URL to be configured.'
+      }
+      const execToken = process.env.EXEC_TOKEN || 'svets-exec-token-2026'
+
+      // Map tool name → browser action
+      const action = name.replace('browser_', '')
+      const labels = {
+        navigate: `Navigating to ${input.url}`,
+        screenshot: 'Taking screenshot',
+        click: `Clicking "${input.selector}"`,
+        fill: `Filling "${input.selector}" with "${input.value?.slice(0, 40)}"`,
+        read: `Reading page content`,
+        close: 'Closing browser session',
+      }
+      send(`\n\n🌐 **Browser:** ${labels[action]}...`)
+
       try {
-        const res = await fetch(`${origin}/api/playwright`, {
+        const res = await fetch(`${execUrl}/browser`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Cookie: cookie },
-          body: JSON.stringify({ code: input.code, url: input.url, description: input.description }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${execToken}` },
+          body: JSON.stringify({ action, sessionId: agentId, ...input }),
         })
         const result = await res.json()
-        if (result.error) {
+
+        if (!result.ok) {
           send(`\n\n❌ **Browser Error:** ${result.error}`)
           return `Error: ${result.error}`
         }
+
         let out = ''
-        if (result.output && result.output !== '(completed with no output)') {
-          send(`\n\n**Result:**\n\`\`\`\n${result.output}\n\`\`\``)
-          out += result.output
+        if (result.title || result.url) {
+          out += `Page: ${result.title || ''} — ${result.url || ''}\n`
         }
-        if (result.screenshotUrl) {
-          send(`\n\n![${input.description}](${result.screenshotUrl})`)
-          out += `\nScreenshot: ${result.screenshotUrl}`
+        if (result.text) {
+          send(`\n\n**Page Content:**\n\`\`\`\n${result.text.slice(0, 2000)}\n\`\`\``)
+          out += result.text
         }
-        return out || 'Browser task completed.'
+        if (result.message) {
+          send(`\n\n✅ ${result.message}`)
+          out += result.message
+        }
+        if (result.screenshot) {
+          // Render as inline base64 image
+          const dataUrl = `data:image/png;base64,${result.screenshot}`
+          send(`\n\n![screenshot](${dataUrl})`)
+          out += '\nScreenshot captured.'
+        }
+        return out || 'Browser action completed.'
       } catch (err) {
-        send(`\n\n❌ **Playwright Error:** ${err.message}`)
+        send(`\n\n❌ **Browser Error:** ${err.message}`)
         return `Error: ${err.message}`
       }
 

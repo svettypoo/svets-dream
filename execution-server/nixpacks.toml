@@ -1,10 +1,11 @@
 [phases.setup]
-nixPkgs = ["git", "python311", "curl", "bash"]
+nixPkgs = ["git", "python311", "curl", "bash", "chromium", "nss", "nspr", "at-spi2-atk", "cups", "libdrm", "mesa", "libxkbcommon", "pango", "cairo", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "expat", "alsa-lib"]
 
 [phases.install]
 cmds = [
   "npm install",
-  "npm install -g vercel @railway/cli"
+  "npm install -g vercel @railway/cli",
+  "npx playwright install chromium --with-deps || true"
 ]
 
 [start]
