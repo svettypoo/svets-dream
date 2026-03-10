@@ -597,7 +597,6 @@ Use message_agent to consult a peer directly. Use delegate_task to assign implem
         send(`\n\n❌ **Playwright Error:** ${err.message}`)
         return `Error: ${err.message}`
       }
-    }
 
     } else if (name === 'message_agent') {
       // OpenClaw sessions_send equivalent — direct synchronous peer-to-peer messaging
