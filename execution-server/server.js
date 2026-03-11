@@ -1559,16 +1559,41 @@ Save important facts using Bash:
 Types: preference|fact|project|pattern|credential — Importance: 1=critical 2=high 3=normal 4=low
 Use proactively: after completing work, learning preferences, finishing a build.`,
 
-        `## Block Library — Reusable App Blocks
-Pre-built Next.js App Router blocks are at /root/workspace/__BLOCKS__/. When scaffolding a new app:
-1. Read /root/workspace/__BLOCKS__/manifest.json to see what's available
-2. Copy the relevant block files with: cp -r /root/workspace/__BLOCKS__/<block>/* /root/workspace/<project>/
-3. Replace {{APP_NAME}} and {{PLACEHOLDER}} tokens with actual values
-4. Run npm install in the project directory
+        `## Forge — App Assembly (ALWAYS use this to start a new app)
+Forge is a deterministic app scaffolder built into this server. It assembles a complete Next.js App Router codebase from pre-built blocks in seconds — with npm install included. NEVER manually copy block files or scaffold from scratch. Call Forge first, then customize.
 
-Available blocks: next-shell (foundation), supabase (DB client), auth-email (login/signup), dashboard-layout (sidebar nav), crud-table (DataTable component), crud-api (REST API route), ai-chat (streaming AI chat), landing (Hero+Features page), stripe (payments), file-upload (Supabase Storage), email-resend (Resend transactional email), env-template (.env.local)
+### Step 1 — Assemble with Forge
+\`\`\`bash
+curl -s -X POST http://localhost:${PORT}/forge/assemble \\
+  -H "Authorization: Bearer ${EXEC_TOKEN}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "appName": "MyApp",
+    "description": "A job board where employers post listings and candidates apply",
+    "blocks": ["next-shell", "supabase", "auth-email", "dashboard-layout", "crud-table", "crud-api", "email-resend"],
+    "entities": [{"name": "Job", "fields": ["title", "description", "status", "user_id"]}],
+    "primaryColor": "#6366f1",
+    "workspaceId": "<workspaceId>"
+  }' | grep '"type":"complete"'
+\`\`\`
+The command streams NDJSON lines. Pipe through \`grep '"type":"complete"'\` to get the final result line.
+The response includes \`appPath\` (absolute path to scaffolded app), \`slug\`, and \`envKeys\` (required env vars).
 
-ALWAYS start with next-shell + supabase when building a new Next.js app. Use blocks first, then customize.`,
+### Available blocks
+Foundation: next-shell (required), supabase, env-template, capacitor (mobile)
+Auth: auth-email, auth-google, roles-permissions
+Layout: dashboard-layout, landing, pricing-page, about-page, contact-form, dark-mode
+Data: crud-table, crud-api, data-table-user, charts, export-csv, search-filters
+Communication: email-resend, email-marketing, sms-telnyx, whatsapp, slack, chat-realtime, ai-messaging, reminders
+Features: tasks, kanban, notifications, notifications-db, comments, reviews-ratings, image-gallery, map-view, file-upload, calendar, booking, voting, badges, activity-feed, blog, wiki, faq
+Monetization: stripe-payments, subscriptions, marketplace, invoicing, affiliate
+Infrastructure: multi-tenant, audit-log, rate-limiting, webhooks, analytics, api-keys, cron-jobs
+
+### Step 2 — Customize
+After assembly, the app is at \`appPath\`. Read the generated files, then make targeted edits to match the user's specific requirements. The scaffold already has working auth, DB clients, layouts, and API routes — only add what's missing.
+
+### Step 3 — Note env vars
+The \`envKeys\` in the complete response lists all env vars the app needs. Tell the user which keys to fill in.`,
 
         `## Gemini UI Tool
 Analyze or redesign UI from screenshots using Gemini Vision:
