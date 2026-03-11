@@ -44,6 +44,9 @@ function getFreePreviewPort() {
 // across multiple tool calls within the same conversation.
 const browserSessions = new Map() // sessionId → { browser, context, page }
 
+// ── Screenshot store (public, in-memory, max 200 frames) ─────────────────────
+const screenshotStore = new Map() // id → Buffer
+
 // ── Agent session cache ────────────────────────────────────────────────────────
 // Maps workspaceId → Claude Code SDK session_id for session resumption.
 // Resuming a session re-uses the KV cache for the prior conversation (~80% token
@@ -423,6 +426,40 @@ const server = http.createServer((req, res) => {
 </html>`
     res.writeHead(200, { 'Content-Type': 'text/html' })
     res.end(html)
+    return
+  }
+
+  // Screenshot store — public, no auth
+  // POST /screenshots  body: { png: "<base64>" }  → returns { id, url }
+  // GET  /screenshots/:id                         → returns image/png
+  if (url.pathname === '/screenshots') {
+    if (req.method === 'POST') {
+      let body = ''
+      req.on('data', c => body += c)
+      req.on('end', () => {
+        try {
+          const { png } = JSON.parse(body)
+          if (!png) { res.writeHead(400); res.end(JSON.stringify({ error: 'png required' })); return }
+          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+          screenshotStore.set(id, Buffer.from(png, 'base64'))
+          // Keep store from growing unbounded — drop oldest when over 200
+          if (screenshotStore.size > 200) {
+            screenshotStore.delete(screenshotStore.keys().next().value)
+          }
+          const publicUrl = `https://${req.headers.host}/screenshots/${id}`
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ id, url: publicUrl }))
+        } catch(e) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })) }
+      })
+      return
+    }
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/screenshots/')) {
+    const id = url.pathname.slice('/screenshots/'.length)
+    const buf = screenshotStore.get(id)
+    if (!buf) { res.writeHead(404); res.end('Not found'); return }
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' })
+    res.end(buf)
     return
   }
 
