@@ -329,6 +329,103 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // Viewer page (no auth — public live browser view)
+  if (req.method === 'GET' && url.pathname === '/viewer') {
+    const sessionId = url.searchParams.get('session') || 'claude-monitor'
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Browser — Svet's Dream</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+  #toolbar { background: #1e293b; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #334155; flex-shrink: 0; }
+  #toolbar h1 { font-size: 14px; font-weight: 600; color: #38bdf8; white-space: nowrap; }
+  #url-bar { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 12px; color: #e2e8f0; font-size: 13px; }
+  #status { font-size: 12px; color: #64748b; white-space: nowrap; }
+  #status.live { color: #22c55e; }
+  #status.error { color: #ef4444; }
+  #nav-btn { background: #2563eb; border: none; color: white; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+  #nav-btn:hover { background: #1d4ed8; }
+  #viewer { flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; }
+  #screen { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  #fps { font-size: 11px; color: #475569; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <h1>🖥 Live View</h1>
+  <input id="url-bar" type="text" placeholder="Current URL will appear here..." onkeydown="if(event.key==='Enter')navigate()">
+  <button id="nav-btn" onclick="navigate()">Go</button>
+  <span id="fps"></span>
+  <span id="status">connecting...</span>
+</div>
+<div id="viewer">
+  <img id="screen" alt="Browser view">
+</div>
+<script>
+  const SESSION = '${sessionId}';
+  const TOKEN = '${EXEC_TOKEN}';
+  const BASE = window.location.origin;
+  let frameCount = 0, lastFpsTime = Date.now();
+
+  const screen = document.getElementById('screen');
+  const status = document.getElementById('status');
+  const fpsEl = document.getElementById('fps');
+  const urlBar = document.getElementById('url-bar');
+
+  async function navigate() {
+    const val = urlBar.value.trim();
+    if (!val) return;
+    const u = val.startsWith('http') ? val : 'https://' + val;
+    status.textContent = 'navigating...'; status.className = '';
+    await fetch(BASE + '/browser', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'navigate', url: u, sessionId: SESSION })
+    }).catch(() => {});
+  }
+
+  async function poll() {
+    status.textContent = 'live'; status.className = 'live';
+    while (true) {
+      try {
+        const res = await fetch(BASE + '/browser', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'screenshot', sessionId: SESSION })
+        });
+        const data = await res.json();
+        if (data.screenshot) {
+          screen.src = 'data:image/png;base64,' + data.screenshot;
+          if (data.url && data.url !== 'about:blank') urlBar.placeholder = data.url;
+          frameCount++;
+          const now = Date.now();
+          if (now - lastFpsTime >= 1000) {
+            fpsEl.textContent = frameCount + ' fps';
+            frameCount = 0; lastFpsTime = now;
+          }
+        }
+      } catch(e) {
+        status.textContent = 'reconnecting...'; status.className = 'error';
+        await new Promise(r => setTimeout(r, 2000));
+        status.textContent = 'live'; status.className = 'live';
+      }
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
+  poll();
+</script>
+</body>
+</html>`
+    res.writeHead(200, { 'Content-Type': 'text/html' })
+    res.end(html)
+    return
+  }
+
   // Auth check for all other routes
   if (!auth(req)) {
     res.writeHead(401, { 'Content-Type': 'application/json' })
@@ -1698,111 +1795,6 @@ To take a screenshot for Gemini UI analysis, use Playwright via Bash, save as PN
 
       if (!res.writableEnded) res.end()
     })
-    return
-  }
-
-  // GET /viewer — live browser viewer HTML page (no auth required for browser display)
-  if (req.method === 'GET' && url.pathname === '/viewer') {
-    const sessionId = url.searchParams.get('session') || 'claude-monitor'
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live Browser — Svet's Dream</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
-  #toolbar { background: #1e293b; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #334155; flex-shrink: 0; }
-  #toolbar h1 { font-size: 14px; font-weight: 600; color: #38bdf8; }
-  #url-bar { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 12px; color: #e2e8f0; font-size: 13px; }
-  #status { font-size: 12px; color: #64748b; }
-  #status.live { color: #22c55e; }
-  #status.error { color: #ef4444; }
-  #nav-btn { background: #2563eb; border: none; color: white; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  #nav-btn:hover { background: #1d4ed8; }
-  #viewer { flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; }
-  #screen { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-  #overlay { position: absolute; color: #64748b; font-size: 14px; display: none; }
-  #fps { font-size: 11px; color: #475569; margin-left: auto; }
-</style>
-</head>
-<body>
-<div id="toolbar">
-  <h1>🖥 Live View</h1>
-  <input id="url-bar" type="text" placeholder="Navigate to URL..." onkeydown="if(event.key==='Enter')navigate()">
-  <button id="nav-btn" onclick="navigate()">Go</button>
-  <span id="fps"></span>
-  <span id="status">connecting...</span>
-</div>
-<div id="viewer">
-  <img id="screen" alt="Browser view">
-  <div id="overlay">Waiting for browser activity...</div>
-</div>
-<script>
-  const SESSION = '${sessionId}';
-  const TOKEN = '${EXEC_TOKEN}';
-  const BASE = window.location.origin;
-  let frameCount = 0, lastFpsTime = Date.now(), streaming = false;
-
-  const screen = document.getElementById('screen');
-  const status = document.getElementById('status');
-  const fps = document.getElementById('fps');
-  const urlBar = document.getElementById('url-bar');
-
-  async function navigate() {
-    const url = urlBar.value.trim();
-    if (!url) return;
-    const u = url.startsWith('http') ? url : 'https://' + url;
-    status.textContent = 'navigating...'; status.className = '';
-    await fetch(BASE + '/browser', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'navigate', url: u, sessionId: SESSION })
-    });
-  }
-
-  function startStream() {
-    if (streaming) return;
-    streaming = true;
-    status.textContent = 'live'; status.className = 'live';
-
-    async function poll() {
-      while (true) {
-        try {
-          const res = await fetch(BASE + '/browser', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'screenshot', sessionId: SESSION })
-          });
-          const data = await res.json();
-          if (data.screenshot) {
-            screen.src = 'data:image/png;base64,' + data.screenshot;
-            if (data.url) urlBar.placeholder = data.url;
-            frameCount++;
-            const now = Date.now();
-            if (now - lastFpsTime >= 1000) {
-              fps.textContent = frameCount + ' fps';
-              frameCount = 0; lastFpsTime = now;
-            }
-          }
-        } catch(e) {
-          status.textContent = 'error'; status.className = 'error';
-          await new Promise(r => setTimeout(r, 2000));
-          status.textContent = 'live'; status.className = 'live';
-        }
-        await new Promise(r => setTimeout(r, 400));
-      }
-    }
-    poll();
-  }
-
-  startStream();
-</script>
-</body>
-</html>`
-    res.writeHead(200, { 'Content-Type': 'text/html' })
-    res.end(html)
     return
   }
 
