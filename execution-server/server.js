@@ -1215,20 +1215,26 @@ export const FORGE_API = '${process.env.FORGE_API_URL || 'https://svets-dream-pr
     return
   }
 
-  // POST /forge/tenants — list or get tenant info
+  // GET /forge/tenants — list tenant apps
   if (req.method === 'GET' && url.pathname === '/forge/tenants') {
     const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
     const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!SUPA_URL || !SUPA_KEY) { res.writeHead(200); res.end(JSON.stringify({ error: 'Supabase not configured' })); return }
-    const r = await new Promise(resolve => {
-      const u = new URL(`${SUPA_URL}/rest/v1/forge_tenants?select=*&order=created_at.desc`)
-      const opts = { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } }
-      const req2 = require('https').request(opts, resp => { let d = ''; resp.on('data', c => d += c); resp.on('end', () => { try { resolve(JSON.parse(d)) } catch { resolve([]) } }) })
-      req2.on('error', () => resolve([]))
-      req2.end()
+    if (!SUPA_URL || !SUPA_KEY) { res.writeHead(200); res.end(JSON.stringify({ tenants: [] })); return }
+    const u = new URL(`${SUPA_URL}/rest/v1/forge_tenants?select=*&order=created_at.desc`)
+    const opts = { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } }
+    const req2 = require('https').request(opts, resp => {
+      let d = ''
+      resp.on('data', c => d += c)
+      resp.on('end', () => {
+        let tenants = []
+        try { tenants = JSON.parse(d) } catch {}
+        if (!Array.isArray(tenants)) tenants = []
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ tenants }))
+      })
     })
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(r))
+    req2.on('error', () => { res.writeHead(200); res.end(JSON.stringify({ tenants: [] })) })
+    req2.end()
     return
   }
 
