@@ -990,7 +990,43 @@ Return this exact JSON structure (fill in all values for this specific app):
 
         // ── Done ───────────────────────────────────────────────────────────
         const relPath = path.relative(WORK_DIR, appDir)
-        emit({ type: 'complete', appPath: appDir, relPath, appName: config.appName, slug: config.slug })
+
+        // Compute required env keys from selected blocks
+        const FORGE_BLOCK_ENV = {
+          'supabase': ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'],
+          'auth-email': ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'],
+          'auth-google': ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'],
+          'roles-permissions': ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'],
+          'email-resend': ['RESEND_API_KEY'],
+          'email-marketing': ['RESEND_API_KEY'],
+          'sms-telnyx': ['TELNYX_API_KEY', 'TELNYX_PHONE_NUMBER'],
+          'whatsapp': ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+          'slack': ['SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET'],
+          'ai-messaging': ['ANTHROPIC_API_KEY'],
+          'ai-chat': ['ANTHROPIC_API_KEY'],
+          'stripe-payments': ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET'],
+          'subscriptions': ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET'],
+          'marketplace': ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET'],
+          'map-view': ['NEXT_PUBLIC_MAPBOX_TOKEN'],
+          'analytics': ['NEXT_PUBLIC_POSTHOG_KEY', 'NEXT_PUBLIC_POSTHOG_HOST'],
+          'file-upload': ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+        }
+        const envKeys = [...new Set(blocks.flatMap(b => FORGE_BLOCK_ENV[b] || []))]
+
+        emit({ type: 'complete', appPath: appDir, relPath, appName: config.appName, slug: config.slug, envKeys })
+
+        // ── Save to forge_tenants ──────────────────────────────────────────
+        const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+        if (SUPA_URL && SUPA_KEY) {
+          const payload = JSON.stringify([{ app_name: config.appName, slug: config.slug, status: 'assembled', config: JSON.stringify({ blocks, envKeys }) }])
+          const su = new URL(`${SUPA_URL}/rest/v1/forge_tenants`)
+          const sopts = { hostname: su.hostname, path: su.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}`, 'Prefer': 'return=minimal', 'Content-Length': Buffer.byteLength(payload) } }
+          const sr = require('https').request(sopts, () => {})
+          sr.on('error', () => {})
+          sr.write(payload)
+          sr.end()
+        }
 
       } catch (err) {
         emit({ type: 'error', message: err.message })
@@ -998,6 +1034,36 @@ Return this exact JSON structure (fill in all values for this specific app):
 
       if (!res.writableEnded) res.end()
     })
+    return
+  }
+
+  // GET /forge/download/:slug — stream app as tar.gz
+  if (req.method === 'GET' && url.pathname.startsWith('/forge/download/')) {
+    const parts = url.pathname.split('/')
+    // parts: ['', 'forge', 'download', workspaceOrSlug, slug?]
+    const slugOrPath = decodeURIComponent(parts.slice(3).join('/'))
+    if (!slugOrPath || slugOrPath.includes('..')) {
+      res.writeHead(400); res.end('bad path'); return
+    }
+    // Try direct path first, then search under WORK_DIR
+    let appDir = path.join(WORK_DIR, slugOrPath)
+    if (!fs.existsSync(appDir)) {
+      // Search for slug in immediate subdirectories
+      const slug = parts[parts.length - 1]
+      const found = fs.readdirSync(WORK_DIR).map(d => path.join(WORK_DIR, d, slug)).find(p => fs.existsSync(p))
+      if (found) appDir = found
+      else { res.writeHead(404); res.end('not found'); return }
+    }
+    const dirName = path.basename(appDir)
+    const parentDir = path.dirname(appDir)
+    res.writeHead(200, {
+      'Content-Type': 'application/gzip',
+      'Content-Disposition': `attachment; filename="${dirName}.tar.gz"`,
+    })
+    const tar = spawn('tar', ['-czf', '-', '-C', parentDir, dirName])
+    tar.stdout.pipe(res)
+    tar.stderr.on('data', d => console.error('[forge-download] tar err:', d.toString()))
+    tar.on('error', err => { console.error('[forge-download] spawn err:', err); if (!res.writableEnded) res.end() })
     return
   }
 
