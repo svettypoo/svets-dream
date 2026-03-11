@@ -1592,7 +1592,18 @@ Infrastructure: multi-tenant, audit-log, rate-limiting, webhooks, analytics, api
 ### Step 2 — Customize
 After assembly, the app is at \`appPath\`. Read the generated files, then make targeted edits to match the user's specific requirements. The scaffold already has working auth, DB clients, layouts, and API routes — only add what's missing.
 
-### Step 3 — Note env vars
+### Step 3 — Deploy to Vercel
+After customizing the scaffold, deploy it with Vercel CLI (already installed):
+\`\`\`bash
+cd <appPath> && vercel --prod --yes --token $VERCEL_TOKEN --scope svettypoos-projects --name <slug>
+\`\`\`
+- VERCEL_TOKEN is available as \`$VERCEL_TOKEN\` env var — do NOT hardcode it
+- \`--scope svettypoos-projects\` is required — always include it
+- Use the app slug as \`--name\` (lowercase, hyphens only)
+- Vercel builds in the cloud — do NOT run \`npm run build\` on the server first (it will OOM-kill)
+- The CLI will print a production URL — that's the live site
+
+### Step 4 — Note env vars
 The \`envKeys\` in the complete response lists all env vars the app needs. Tell the user which keys to fill in.`,
 
         `## Gemini UI Tool
