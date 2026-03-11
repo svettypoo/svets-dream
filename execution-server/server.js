@@ -413,7 +413,7 @@ const server = http.createServer((req, res) => {
         await new Promise(r => setTimeout(r, 2000));
         status.textContent = 'live'; status.className = 'live';
       }
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 150));
     }
   }
 
