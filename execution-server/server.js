@@ -47,6 +47,56 @@ const browserSessions = new Map() // sessionId → { browser, context, page }
 // ── Screenshot store (public, in-memory, max 200 frames) ─────────────────────
 const screenshotStore = new Map() // id → Buffer
 
+// ── Audio store (public, in-memory, max 50 recordings) ───────────────────────
+const audioStore = new Map() // id → Buffer (ogg/mp3)
+
+// ── Audio capture processes ───────────────────────────────────────────────────
+const audioCaptures = new Map() // captureId → { proc, outputFile }
+
+// ── Device profiles for browser emulation ────────────────────────────────────
+const DEVICES = {
+  desktop: {
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 800 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+    label: 'Desktop',
+  },
+  ios: {
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 3,
+    isMobile: true,
+    hasTouch: true,
+    label: 'iPhone (iOS)',
+  },
+  android: {
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    viewport: { width: 393, height: 851 },
+    deviceScaleFactor: 2.75,
+    isMobile: true,
+    hasTouch: true,
+    label: 'Android Phone',
+  },
+  tablet_ios: {
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    viewport: { width: 1024, height: 1366 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    label: 'iPad',
+  },
+  tablet_android: {
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-X700) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 800, height: 1280 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    label: 'Android Tablet',
+  },
+}
+
 // ── Agent session cache ────────────────────────────────────────────────────────
 // Maps workspaceId → Claude Code SDK session_id for session resumption.
 // Resuming a session re-uses the KV cache for the prior conversation (~80% token
@@ -70,19 +120,43 @@ function persistSessions() {
   } catch {}
 }
 
-async function getSession(sessionId) {
+async function getSession(sessionId, opts = {}) {
   if (browserSessions.has(sessionId)) return browserSessions.get(sessionId)
   const { chromium } = require('playwright')
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  })
+
+  const device = DEVICES[opts.device] || DEVICES.desktop
+
+  const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+    '--autoplay-policy=no-user-gesture-required', // allow audio autoplay
+    '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies',
+  ]
+
+  // Fake microphone input — feeds a WAV file as the mic source
+  if (opts.fakeAudio) {
+    args.push(
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+      '--use-file-for-fake-audio-capture=/app/test-audio.wav',
+      '--allow-file-access-from-files',
+    )
+  }
+
+  const browser = await chromium.launch({ headless: true, args })
+  const permissions = opts.fakeAudio ? ['microphone', 'camera'] : []
   const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+    viewport: device.viewport,
+    userAgent: device.userAgent,
+    deviceScaleFactor: device.deviceScaleFactor,
+    isMobile: device.isMobile,
+    hasTouch: device.hasTouch,
+    permissions,
   })
   const page = await context.newPage()
-  const session = { browser, context, page }
+  // Grant mic/camera permissions to all origins if fakeAudio
+  if (opts.fakeAudio) {
+    await context.grantPermissions(['microphone', 'camera']).catch(() => {})
+  }
+  const session = { browser, context, page, opts, device }
   browserSessions.set(sessionId, session)
   return session
 }
@@ -101,7 +175,12 @@ async function handleBrowser(action, sessionId, params) {
       return { ok: true, message: 'Browser session closed.' }
     }
 
-    const session = await getSession(sessionId)
+    // Allow passing device/fakeAudio options on first use — these only apply to new sessions
+    const sessionOpts = {}
+    if (params.device) sessionOpts.device = params.device
+    if (params.fakeAudio) sessionOpts.fakeAudio = params.fakeAudio
+
+    const session = await getSession(sessionId, sessionOpts)
     const { page } = session
 
     if (action === 'navigate') {
@@ -166,6 +245,71 @@ async function handleBrowser(action, sessionId, params) {
       await page.waitForTimeout(params.wait || 1000)
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
       return { ok: true, url: page.url(), screenshot: screenshot.toString('base64') }
+    }
+
+    // ── Audio status — inspect all audio/video elements on the page ──────────
+    if (action === 'audio_status') {
+      const status = await page.evaluate(() => {
+        const els = [...document.querySelectorAll('audio, video')]
+        return {
+          count: els.length,
+          elements: els.map(el => ({
+            tag: el.tagName.toLowerCase(),
+            src: el.currentSrc || el.src || null,
+            paused: el.paused,
+            muted: el.muted,
+            volume: el.volume,
+            currentTime: el.currentTime,
+            duration: el.duration || null,
+            readyState: el.readyState,
+            autoplay: el.autoplay,
+            loop: el.loop,
+            networkState: el.networkState,
+          })),
+          audioContextState: (() => {
+            try { return new AudioContext().state } catch { return 'unavailable' }
+          })(),
+        }
+      }).catch(e => ({ error: e.message }))
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, ...status, screenshot: screenshot.toString('base64') }
+    }
+
+    // ── Start audio capture — records browser audio output via PulseAudio ────
+    if (action === 'start_capture') {
+      const captureId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5)
+      const outputFile = `/tmp/audio-${captureId}.ogg`
+      const proc = spawn('ffmpeg', [
+        '-y', '-f', 'pulse', '-i', 'virtual_sink.monitor',
+        '-c:a', 'libvorbis', '-q:a', '4', outputFile
+      ])
+      proc.stderr.on('data', () => {}) // suppress ffmpeg logs
+      audioCaptures.set(captureId, { proc, outputFile })
+      return { ok: true, captureId, message: 'Recording started. Call stop_capture to finish.' }
+    }
+
+    // ── Stop audio capture — returns a public URL to the recording ───────────
+    if (action === 'stop_capture') {
+      const cap = audioCaptures.get(params.captureId)
+      if (!cap) return { ok: false, error: 'No capture with that id' }
+      cap.proc.kill('SIGTERM')
+      await new Promise(r => setTimeout(r, 1000))
+      try {
+        const buf = fs.readFileSync(cap.outputFile)
+        audioStore.set(params.captureId, buf)
+        if (audioStore.size > 50) audioStore.delete(audioStore.keys().next().value)
+        audioCaptures.delete(params.captureId)
+        return { ok: true, captureId: params.captureId, sizeBytes: buf.length }
+      } catch(e) {
+        return { ok: false, error: 'Could not read capture: ' + e.message }
+      }
+    }
+
+    // ── Device info — return current session device profile ──────────────────
+    if (action === 'device_info') {
+      const d = session.device || DEVICES.desktop
+      const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, device: d.label, viewport: d.viewport, isMobile: d.isMobile, hasTouch: d.hasTouch, fakeAudio: !!(session.opts && session.opts.fakeAudio), screenshot: screenshot.toString('base64') }
     }
 
     return { ok: false, error: `Unknown action: ${action}` }
@@ -344,65 +488,161 @@ const server = http.createServer((req, res) => {
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
-  #toolbar { background: #1e293b; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #334155; flex-shrink: 0; }
+  #toolbar { background: #1e293b; padding: 8px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #334155; flex-shrink: 0; flex-wrap: wrap; }
   #toolbar h1 { font-size: 14px; font-weight: 600; color: #38bdf8; white-space: nowrap; }
-  #url-bar { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 6px 12px; color: #e2e8f0; font-size: 13px; }
+  #url-bar { flex: 1; min-width: 160px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 5px 10px; color: #e2e8f0; font-size: 13px; }
   #status { font-size: 12px; color: #64748b; white-space: nowrap; }
   #status.live { color: #22c55e; }
   #status.error { color: #ef4444; }
-  #nav-btn { background: #2563eb; border: none; color: white; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
-  #nav-btn:hover { background: #1d4ed8; }
+  .btn { background: #2563eb; border: none; color: white; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .btn:hover { opacity: 0.85; }
+  .btn.red { background: #dc2626; }
+  .btn.green { background: #16a34a; }
+  .btn.gray { background: #475569; }
+  #device-sel { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 5px 8px; color: #e2e8f0; font-size: 12px; cursor: pointer; }
+  #device-badge { font-size: 11px; background: #1e3a5f; color: #7dd3fc; padding: 3px 8px; border-radius: 10px; white-space: nowrap; }
+  #fps { font-size: 11px; color: #475569; white-space: nowrap; }
+  #audio-bar { background: #0f172a; border-top: 1px solid #1e293b; padding: 6px 14px; display: flex; align-items: center; gap: 10px; font-size: 12px; flex-shrink: 0; }
+  #audio-status { flex: 1; color: #64748b; }
+  #audio-status.playing { color: #4ade80; }
+  #capture-id { display: none; }
   #viewer { flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #000; }
   #screen { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-  #fps { font-size: 11px; color: #475569; white-space: nowrap; }
+  #recordings { background: #0f172a; border-top: 1px solid #1e293b; padding: 6px 14px; font-size: 12px; max-height: 80px; overflow-y: auto; }
+  #recordings a { color: #38bdf8; margin-right: 12px; }
 </style>
 </head>
 <body>
 <div id="toolbar">
   <h1>🖥 Live View</h1>
-  <input id="url-bar" type="text" placeholder="Current URL will appear here..." onkeydown="if(event.key==='Enter')navigate()">
-  <button id="nav-btn" onclick="navigate()">Go</button>
+  <select id="device-sel" onchange="switchDevice(this.value)">
+    <option value="desktop">🖥 Desktop</option>
+    <option value="ios">📱 iPhone (iOS)</option>
+    <option value="android">📱 Android</option>
+    <option value="tablet_ios">📲 iPad</option>
+    <option value="tablet_android">📲 Android Tablet</option>
+  </select>
+  <span id="device-badge">Desktop</span>
+  <input id="url-bar" type="text" placeholder="Enter URL..." onkeydown="if(event.key==='Enter')navigate()">
+  <button class="btn" onclick="navigate()">Go</button>
   <span id="fps"></span>
   <span id="status">connecting...</span>
 </div>
 <div id="viewer">
   <img id="screen" alt="Browser view">
 </div>
+<div id="audio-bar">
+  <span>🔊 Audio:</span>
+  <span id="audio-status">checking...</span>
+  <button class="btn green" onclick="checkAudio()">Check</button>
+  <button class="btn" id="rec-btn" onclick="toggleCapture()">⏺ Record</button>
+  <input id="capture-id" type="hidden" value="">
+</div>
+<div id="recordings"></div>
 <script>
-  const SESSION = '${sessionId}';
+  let SESSION = '${sessionId}';
   const TOKEN = '${EXEC_TOKEN}';
   const BASE = window.location.origin;
   let frameCount = 0, lastFpsTime = Date.now();
+  let currentDevice = 'desktop';
+  let recording = false;
 
-  const screen = document.getElementById('screen');
-  const status = document.getElementById('status');
+  const screenEl = document.getElementById('screen');
+  const statusEl = document.getElementById('status');
   const fpsEl = document.getElementById('fps');
   const urlBar = document.getElementById('url-bar');
+  const deviceBadge = document.getElementById('device-badge');
+  const audioStatus = document.getElementById('audio-status');
+  const recBtn = document.getElementById('rec-btn');
+  const recordingsEl = document.getElementById('recordings');
+
+  const DEVICE_LABELS = { desktop:'Desktop', ios:'iPhone (iOS)', android:'Android', tablet_ios:'iPad', tablet_android:'Android Tablet' };
+  const DEVICE_ICONS = { desktop:'🖥', ios:'📱', android:'📱', tablet_ios:'📲', tablet_android:'📲' };
+
+  async function browser(action, params) {
+    const r = await fetch(BASE + '/browser', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, sessionId: SESSION, ...params })
+    });
+    return r.json();
+  }
+
+  async function switchDevice(device) {
+    currentDevice = device;
+    deviceBadge.textContent = DEVICE_ICONS[device] + ' ' + DEVICE_LABELS[device];
+    // Close existing session and open new one with device profile
+    await browser('close', {});
+    SESSION = device + '-' + Date.now();
+    statusEl.textContent = 'new session: ' + DEVICE_LABELS[device]; statusEl.className = '';
+    // Pre-init session with device + fakeAudio
+    await browser('screenshot', { device, fakeAudio: true });
+    statusEl.textContent = 'live'; statusEl.className = 'live';
+    // Update URL in select UI
+    const sel = document.getElementById('device-sel');
+    if (sel) sel.value = device;
+  }
 
   async function navigate() {
     const val = urlBar.value.trim();
     if (!val) return;
     const u = val.startsWith('http') ? val : 'https://' + val;
-    status.textContent = 'navigating...'; status.className = '';
-    await fetch(BASE + '/browser', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'navigate', url: u, sessionId: SESSION })
-    }).catch(() => {});
+    statusEl.textContent = 'navigating...'; statusEl.className = '';
+    await browser('navigate', { url: u });
+    statusEl.textContent = 'live'; statusEl.className = 'live';
+  }
+
+  async function checkAudio() {
+    const d = await browser('audio_status', {});
+    if (d.error) { audioStatus.textContent = 'error: ' + d.error; audioStatus.className = ''; return; }
+    if (d.count === 0) { audioStatus.textContent = 'no audio elements'; audioStatus.className = ''; return; }
+    const playing = d.elements.filter(e => !e.paused);
+    if (playing.length > 0) {
+      audioStatus.textContent = playing.length + ' playing — ' + (playing[0].src || 'unknown src');
+      audioStatus.className = 'playing';
+    } else {
+      audioStatus.textContent = d.count + ' audio element(s), all paused';
+      audioStatus.className = '';
+    }
+  }
+
+  async function toggleCapture() {
+    if (!recording) {
+      const d = await browser('start_capture', {});
+      if (d.captureId) {
+        document.getElementById('capture-id').value = d.captureId;
+        recording = true;
+        recBtn.textContent = '⏹ Stop';
+        recBtn.className = 'btn red';
+        audioStatus.textContent = '🔴 Recording...'; audioStatus.className = 'playing';
+      } else {
+        audioStatus.textContent = 'capture failed: ' + (d.error || 'unknown');
+      }
+    } else {
+      const captureId = document.getElementById('capture-id').value;
+      const d = await browser('stop_capture', { captureId });
+      recording = false;
+      recBtn.textContent = '⏺ Record'; recBtn.className = 'btn';
+      if (d.ok) {
+        const url = BASE + '/audio/' + captureId;
+        const a = document.createElement('a');
+        a.href = url; a.target = '_blank';
+        a.textContent = '🎵 Recording ' + new Date().toLocaleTimeString() + ' (' + Math.round(d.sizeBytes/1024) + ' KB)';
+        recordingsEl.prepend(a);
+        audioStatus.textContent = 'Saved (' + Math.round(d.sizeBytes/1024) + ' KB)'; audioStatus.className = '';
+      } else {
+        audioStatus.textContent = 'stop failed: ' + (d.error || 'unknown'); audioStatus.className = '';
+      }
+    }
   }
 
   async function poll() {
-    status.textContent = 'live'; status.className = 'live';
+    statusEl.textContent = 'live'; statusEl.className = 'live';
     while (true) {
       try {
-        const res = await fetch(BASE + '/browser', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'screenshot', sessionId: SESSION })
-        });
-        const data = await res.json();
+        const data = await browser('screenshot', {});
         if (data.screenshot) {
-          screen.src = 'data:image/png;base64,' + data.screenshot;
+          screenEl.src = 'data:image/png;base64,' + data.screenshot;
           if (data.url && data.url !== 'about:blank') urlBar.placeholder = data.url;
           frameCount++;
           const now = Date.now();
@@ -412,15 +652,18 @@ const server = http.createServer((req, res) => {
           }
         }
       } catch(e) {
-        status.textContent = 'reconnecting...'; status.className = 'error';
+        statusEl.textContent = 'reconnecting...'; statusEl.className = 'error';
         await new Promise(r => setTimeout(r, 2000));
-        status.textContent = 'live'; status.className = 'live';
+        statusEl.textContent = 'live'; statusEl.className = 'live';
       }
       await new Promise(r => setTimeout(r, 150));
     }
   }
 
-  poll();
+  // Init with fakeAudio so mic is available from the start
+  browser('screenshot', { fakeAudio: true }).then(() => poll());
+  // Auto-check audio every 5s
+  setInterval(checkAudio, 5000);
 </script>
 </body>
 </html>`
@@ -459,6 +702,17 @@ const server = http.createServer((req, res) => {
     const buf = screenshotStore.get(id)
     if (!buf) { res.writeHead(404); res.end('Not found'); return }
     res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' })
+    res.end(buf)
+    return
+  }
+
+  // Audio store — public, no auth
+  // GET /audio/:id → audio/ogg file
+  if (req.method === 'GET' && url.pathname.startsWith('/audio/')) {
+    const id = url.pathname.slice('/audio/'.length)
+    const buf = audioStore.get(id)
+    if (!buf) { res.writeHead(404); res.end('Not found'); return }
+    res.writeHead(200, { 'Content-Type': 'audio/ogg', 'Content-Disposition': `inline; filename="recording-${id}.ogg"`, 'Cache-Control': 'public, max-age=86400' })
     res.end(buf)
     return
   }
@@ -1845,6 +2099,41 @@ try {
   console.log('[exec-server] Playwright chromium ready')
 } catch (e) {
   console.error('[exec-server] Playwright install failed:', e.message)
+}
+
+// ── PulseAudio virtual sink setup (for audio capture) ─────────────────────────
+try {
+  execSync('pulseaudio --start --daemonize --log-level=error 2>/dev/null || true', { stdio: 'pipe' })
+  execSync('pactl load-module module-null-sink sink_name=virtual_sink sink_properties=device.description=VirtualSink 2>/dev/null || true', { stdio: 'pipe' })
+  execSync('pactl set-default-sink virtual_sink 2>/dev/null || true', { stdio: 'pipe' })
+  console.log('[exec-server] PulseAudio virtual sink ready')
+} catch (e) {
+  console.log('[exec-server] PulseAudio not available (install pulseaudio for audio capture):', e.message)
+}
+
+// ── Generate test WAV (1s 440Hz sine — used as fake mic input) ────────────────
+try {
+  const WAV_PATH = '/app/test-audio.wav'
+  if (!fs.existsSync(WAV_PATH)) {
+    const sampleRate = 44100, freq = 440, duration = 2
+    const numSamples = sampleRate * duration
+    const buf = Buffer.alloc(44 + numSamples * 2)
+    // WAV header
+    buf.write('RIFF', 0); buf.writeUInt32LE(36 + numSamples * 2, 4); buf.write('WAVE', 8)
+    buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20)
+    buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sampleRate, 24); buf.writeUInt32LE(sampleRate * 2, 28)
+    buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34)
+    buf.write('data', 36); buf.writeUInt32LE(numSamples * 2, 40)
+    for (let i = 0; i < numSamples; i++) {
+      const sample = Math.round(32767 * Math.sin(2 * Math.PI * freq * i / sampleRate))
+      buf.writeInt16LE(sample, 44 + i * 2)
+    }
+    fs.mkdirSync(path.dirname(WAV_PATH), { recursive: true })
+    fs.writeFileSync(WAV_PATH, buf)
+    console.log('[exec-server] Test audio WAV generated at', WAV_PATH)
+  }
+} catch (e) {
+  console.log('[exec-server] WAV generation failed:', e.message)
 }
 
 server.listen(PORT, () => {
