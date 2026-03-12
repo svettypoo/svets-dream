@@ -42,7 +42,21 @@ function getFreePreviewPort() {
 // ── Browser session manager ───────────────────────────────────────────────────
 // Keeps one Playwright browser context per sessionId so the page persists
 // across multiple tool calls within the same conversation.
-const browserSessions = new Map() // sessionId → { browser, context, page }
+const browserSessions = new Map() // sessionId → { browser, context, page, lastUsed }
+const MAX_BROWSER_SESSIONS = 3
+const SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+
+// Reap idle browser sessions every 60 seconds
+setInterval(async () => {
+  const now = Date.now()
+  for (const [id, session] of browserSessions) {
+    if (now - session.lastUsed > SESSION_IDLE_TIMEOUT_MS) {
+      console.log(`[browser] Reaping idle session: ${id} (idle ${Math.round((now - session.lastUsed) / 1000)}s)`)
+      await session.browser.close().catch(() => {})
+      browserSessions.delete(id)
+    }
+  }
+}, 60000)
 
 // ── Screenshot store (public, in-memory, max 200 frames) ─────────────────────
 const screenshotStore = new Map() // id → Buffer
@@ -121,7 +135,24 @@ function persistSessions() {
 }
 
 async function getSession(sessionId, opts = {}) {
-  if (browserSessions.has(sessionId)) return browserSessions.get(sessionId)
+  if (browserSessions.has(sessionId)) {
+    const s = browserSessions.get(sessionId)
+    s.lastUsed = Date.now()
+    return s
+  }
+
+  // Enforce max sessions — close oldest if at capacity
+  if (browserSessions.size >= MAX_BROWSER_SESSIONS) {
+    let oldestId = null, oldestTime = Infinity
+    for (const [id, s] of browserSessions) {
+      if (s.lastUsed < oldestTime) { oldestTime = s.lastUsed; oldestId = id }
+    }
+    if (oldestId) {
+      console.log(`[browser] Max sessions (${MAX_BROWSER_SESSIONS}) reached — closing oldest: ${oldestId}`)
+      await closeSession(oldestId)
+    }
+  }
+
   const { chromium } = require('playwright')
 
   const device = DEVICES[opts.device] || DEVICES.desktop
@@ -156,8 +187,9 @@ async function getSession(sessionId, opts = {}) {
   if (opts.fakeAudio) {
     await context.grantPermissions(['microphone', 'camera']).catch(() => {})
   }
-  const session = { browser, context, page, opts, device }
+  const session = { browser, context, page, opts, device, lastUsed: Date.now() }
   browserSessions.set(sessionId, session)
+  console.log(`[browser] New session: ${sessionId} (total: ${browserSessions.size})`)
   return session
 }
 
