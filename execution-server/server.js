@@ -43,7 +43,7 @@ function getFreePreviewPort() {
 // Keeps one Playwright browser context per sessionId so the page persists
 // across multiple tool calls within the same conversation.
 const browserSessions = new Map() // sessionId → { browser, context, page, lastUsed }
-const MAX_BROWSER_SESSIONS = parseInt(process.env.MAX_BROWSER_SESSIONS || '10', 10)
+const MAX_BROWSER_SESSIONS = parseInt(process.env.MAX_BROWSER_SESSIONS || '20', 10)
 const SESSION_IDLE_TIMEOUT_MS = parseInt(process.env.SESSION_IDLE_TIMEOUT_MS || String(10 * 60 * 1000), 10)
 
 // Reap idle browser sessions every 60 seconds
