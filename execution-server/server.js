@@ -240,6 +240,26 @@ async function handleBrowser(action, sessionId, params) {
       return { ok: true, result, url: page.url(), screenshot: screenshot.toString('base64') }
     }
 
+    if (action === 'screenshotElements') {
+      // Screenshot each element matching a CSS selector — used for product snipping
+      const selector = params.selector || 'article'
+      const max = params.max || 24
+      await page.waitForTimeout(1500) // let lazy-load settle
+      const elements = await page.locator(selector).all()
+      const results = []
+      for (let i = 0; i < Math.min(elements.length, max); i++) {
+        try {
+          const el = elements[i]
+          const box = await el.boundingBox()
+          if (!box || box.width < 60 || box.height < 60) continue
+          const buf = await el.screenshot({ type: 'png' }).catch(() => null)
+          const text = await el.innerText({ timeout: 2000 }).catch(() => '')
+          if (buf) results.push({ index: i, base64: buf.toString('base64'), text: text.slice(0, 400) })
+        } catch { /* skip */ }
+      }
+      return { ok: true, snips: results, total: elements.length }
+    }
+
     if (action === 'mouse_click') {
       await page.mouse.click(params.x, params.y)
       await page.waitForTimeout(params.wait || 1000)
