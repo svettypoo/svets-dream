@@ -184,7 +184,7 @@ async function handleBrowser(action, sessionId, params) {
     const { page } = session
 
     if (action === 'navigate') {
-      await page.goto(params.url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await page.goto(params.url, { waitUntil: 'domcontentloaded', timeout: 300000 })
       const title = await page.title()
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
       return { ok: true, title, url: page.url(), screenshot: screenshot.toString('base64') }
