@@ -43,8 +43,8 @@ function getFreePreviewPort() {
 // Keeps one Playwright browser context per sessionId so the page persists
 // across multiple tool calls within the same conversation.
 const browserSessions = new Map() // sessionId → { browser, context, page, lastUsed }
-const MAX_BROWSER_SESSIONS = 3
-const SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+const MAX_BROWSER_SESSIONS = parseInt(process.env.MAX_BROWSER_SESSIONS || '10', 10)
+const SESSION_IDLE_TIMEOUT_MS = parseInt(process.env.SESSION_IDLE_TIMEOUT_MS || String(10 * 60 * 1000), 10)
 
 // Reap idle browser sessions every 60 seconds
 setInterval(async () => {
@@ -160,6 +160,10 @@ async function getSession(sessionId, opts = {}) {
   const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
     '--autoplay-policy=no-user-gesture-required', // allow audio autoplay
     '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies',
+    '--disable-gpu', '--disable-extensions', '--disable-background-networking',
+    '--disable-sync', '--disable-translate', '--metrics-recording-only',
+    '--no-first-run', '--mute-audio',
+    `--js-flags=--max-old-space-size=${process.env.CHROME_HEAP_MB || '256'}`,
   ]
 
   // Fake microphone input — feeds a WAV file as the mic source
@@ -523,8 +527,15 @@ const server = http.createServer((req, res) => {
 
   // Health check (no auth)
   if (req.method === 'GET' && url.pathname === '/health') {
+    const sessions = []
+    for (const [id, s] of browserSessions) {
+      sessions.push({ id, idleSec: Math.round((Date.now() - s.lastUsed) / 1000), device: s.device?.viewport })
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: true, uptime: process.uptime(), workDir: WORK_DIR }))
+    res.end(JSON.stringify({
+      ok: true, uptime: process.uptime(), workDir: WORK_DIR,
+      browser: { active: browserSessions.size, max: MAX_BROWSER_SESSIONS, idleTimeoutMin: SESSION_IDLE_TIMEOUT_MS / 60000, sessions }
+    }))
     return
   }
 
