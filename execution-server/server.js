@@ -105,26 +105,35 @@ async function getMobileSession(sessionId, opts = {}) {
   const context = await browser.newContext({ viewport: { width: 500, height: 900 } })
   const page = await context.newPage()
 
-  // Navigate to a wrapper page that loads the Appetize SDK properly
+  // Write a wrapper HTML file to /tmp and serve it via file:// so external scripts load
   const embedUrl = `https://appetize.io/embed/${publicKey}?device=${device}&osVersion=${osVersion}&scale=auto&autoplay=true&grantPermissions=true&screenOnly=false&record=true&toast=top`
 
-  // First, navigate to a page that hosts the iframe + SDK
-  const wrapperHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+  const wrapperPath = `/tmp/appetize-${sessionId}.html`
+  fs.writeFileSync(wrapperPath, `<!DOCTYPE html>
 <html><head>
 <style>*{margin:0;padding:0}body{background:#000;overflow:hidden}#appetize{border:0;width:100%;height:100vh}</style>
 </head><body>
 <iframe id="appetize" src="${embedUrl}" allow="cross-origin-isolated"></iframe>
-<script src="https://js.appetize.io/v3/sdk.js"></script>
 <script>
 window._appetizeReady = false;
 window._session = null;
 window._client = null;
 window._initError = null;
-(async function init() {
+
+// Poll for the appetize SDK to become available (injected by the iframe)
+function waitForSdk() {
+  if (window.appetize && typeof window.appetize.getClient === 'function') {
+    initSession();
+  } else {
+    setTimeout(waitForSdk, 500);
+  }
+}
+
+async function initSession() {
   try {
     const client = await window.appetize.getClient('#appetize');
     window._client = client;
-    client.on('session', async (session) => {
+    client.on('session', (session) => {
       window._session = session;
       window._appetizeReady = true;
     });
@@ -133,13 +142,13 @@ window._initError = null;
     window._appetizeReady = true;
   } catch(e) {
     window._initError = e.message || String(e);
-    console.error('[appetize] Init error:', e);
   }
-})();
-</script></body></html>`)}`
+}
+waitForSdk();
+</script></body></html>`)
 
   console.log(`[mobile] Loading Appetize embed (${publicKey}, ${device}, ${platform})...`)
-  await page.goto(wrapperHtml, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await page.goto('file://' + wrapperPath, { waitUntil: 'domcontentloaded', timeout: 60000 })
 
   // Wait for Appetize SDK to load and session to start (up to 120s)
   console.log(`[mobile] Waiting for Appetize session to be ready...`)
