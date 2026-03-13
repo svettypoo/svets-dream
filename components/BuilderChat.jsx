@@ -319,7 +319,7 @@ const BuilderChat = forwardRef(function BuilderChat({ onOrgUpdate }, ref) {
 
     // ── Quick mode: Railway Claude Code SDK (always warm, no cold start) ──
     if (quickMode) {
-      const RAILWAY_URL = 'https://svets-dream-production.up.railway.app'
+      const RAILWAY_URL = 'https://exec.stproperties.com'
       // Instant ACK — show empty bubble immediately before fetch even starts
       setMessages(prev => [...prev, { role: 'assistant', content: '' }])
       try {

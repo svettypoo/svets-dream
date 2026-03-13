@@ -1983,7 +1983,7 @@ Return this exact JSON structure (fill in all values for this specific app):
         // ── 1. Write tenant middleware into the app ──
         const tenantMiddleware = `// Auto-injected by Forge — tenant isolation + usage metering
 export const TENANT_ID = '${tid}'
-export const FORGE_API = '${process.env.FORGE_API_URL || 'https://svets-dream-production.up.railway.app'}'
+export const FORGE_API = '${process.env.FORGE_API_URL || 'https://exec.stproperties.com'}'
 `
         fs.writeFileSync(path.join(dir, 'lib/tenant.js'), tenantMiddleware)
 
@@ -2002,7 +2002,7 @@ export const FORGE_API = '${process.env.FORGE_API_URL || 'https://svets-dream-pr
           `ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
           `NEXT_PUBLIC_APP_URL=https://${slug}.svets-dream.app`,
           `FORGE_TENANT_ID=${tid}`,
-          `FORGE_API_URL=${process.env.FORGE_API_URL || 'https://svets-dream-production.up.railway.app'}`,
+          `FORGE_API_URL=${process.env.FORGE_API_URL || 'https://exec.stproperties.com'}`,
           `CRON_SECRET=${Math.random().toString(36).slice(2)}`,
         ].join('\n')
         fs.writeFileSync(path.join(dir, '.env.local'), envContent)

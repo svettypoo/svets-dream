@@ -9,7 +9,7 @@ async function run(command) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ command })
     const req = https.request({
-      hostname: 'svets-dream-production.up.railway.app',
+      hostname: 'exec.stproperties.com',
       path: '/run',
       method: 'POST',
       headers: {

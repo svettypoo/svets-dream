@@ -1,7 +1,7 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
 
-const RAILWAY_URL = 'https://svets-dream-production.up.railway.app'
+const RAILWAY_URL = 'https://exec.stproperties.com'
 const EXEC_TOKEN = 'svets-exec-token-2026'
 
 const ALL_BLOCKS = [

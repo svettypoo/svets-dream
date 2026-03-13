@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-const FORGE_API = process.env.FORGE_API_URL || 'https://svets-dream-production.up.railway.app'
+const FORGE_API = process.env.FORGE_API_URL || 'https://exec.stproperties.com'
 const FORGE_TOKEN = process.env.FORGE_EXEC_TOKEN || ''
 const TENANT_ID = process.env.FORGE_TENANT_ID || ''
 

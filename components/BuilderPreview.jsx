@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-const EXEC_URL = 'https://svets-dream-production.up.railway.app'
+const EXEC_URL = 'https://exec.stproperties.com'
 const EXEC_TOKEN = 'svets-exec-token-2026'
 
 // File type icons

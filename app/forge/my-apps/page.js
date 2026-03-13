@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { ExternalLink, Github, BarChart2, Settings, CreditCard, Code2, Play } from 'lucide-react'
 
-const RAILWAY_URL = 'https://svets-dream-production.up.railway.app'
+const RAILWAY_URL = 'https://exec.stproperties.com'
 const EXEC_TOKEN = 'svets-exec-token-2026'
 
 const PLAN_LABELS = { starter: 'Starter · $29/mo', pro: 'Pro · $79/mo', export: 'Export tier' }
