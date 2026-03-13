@@ -251,7 +251,7 @@ async function uploadToMediaService(mediaUrl, mediaToken, buffer, filename, mime
 
 // Auto-upload screenshot to media service (fire-and-forget)
 function autoUploadScreenshot(screenshotBuf, sessionId) {
-  const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
+  const mediaUrl = process.env.MEDIA_SERVICE_URL || 'https://media.stproperties.com'
   const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
   if (!mediaUrl) return
   uploadToMediaService(mediaUrl, mediaToken, screenshotBuf, `screenshot-${Date.now()}.png`, 'image/png', 'dream', sessionId)
@@ -413,7 +413,7 @@ async function handleBrowser(action, sessionId, params) {
         if (audioStore.size > 50) audioStore.delete(audioStore.keys().next().value)
         audioCaptures.delete(params.captureId)
         // Auto-upload audio to media service
-        const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
+        const mediaUrl = process.env.MEDIA_SERVICE_URL || 'https://media.stproperties.com'
         const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
         const mediaResult = await uploadToMediaService(mediaUrl, mediaToken, buf, `audio-${params.captureId}.ogg`, 'audio/ogg', 'dream-capture', sessionId).catch(() => null)
         return { ok: true, captureId: params.captureId, sizeBytes: buf.length, media: mediaResult }
@@ -458,7 +458,7 @@ async function handleBrowser(action, sessionId, params) {
         // Read the finalized video from Playwright's temp path
         const videoBuffer = fs.readFileSync(videoPath)
         // Upload to media service
-        const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
+        const mediaUrl = process.env.MEDIA_SERVICE_URL || 'https://media.stproperties.com'
         const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
         const uploadResult = await uploadToMediaService(mediaUrl, mediaToken, videoBuffer, `recording-${sessionId}.webm`, 'video/webm', 'dream-recording', sessionId)
         try { fs.unlinkSync(videoPath) } catch {}
