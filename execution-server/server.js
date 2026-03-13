@@ -450,9 +450,10 @@ async function handleBrowser(action, sessionId, params) {
       if (!video) return { ok: false, error: 'No active video recording on this session' }
       const tmpPath = `/tmp/recording-${sessionId}-${Date.now()}.webm`
       try {
-        await video.saveAs(tmpPath)
-        // Close and reopen session without recording
+        // MUST close context first — Playwright only finalizes the video file on context close
+        // The video object remains valid after close and saveAs() works on the finalized file
         await closeSession(sessionId)
+        await video.saveAs(tmpPath)
         // Upload to media service
         const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
         const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
