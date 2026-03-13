@@ -448,18 +448,20 @@ async function handleBrowser(action, sessionId, params) {
     if (action === 'stop_recording') {
       const video = page.video()
       if (!video) return { ok: false, error: 'No active video recording on this session' }
-      const tmpPath = `/tmp/recording-${sessionId}-${Date.now()}.webm`
       try {
-        // MUST close context first — Playwright only finalizes the video file on context close
-        // The video object remains valid after close and saveAs() works on the finalized file
+        // Get the recording path BEFORE closing — Playwright writes video to this temp dir
+        const videoPath = await video.path()
+        // Close the browser context — this finalizes the video file on disk
         await closeSession(sessionId)
-        await video.saveAs(tmpPath)
+        // Wait briefly for file to be fully written
+        await new Promise(r => setTimeout(r, 1000))
+        // Read the finalized video from Playwright's temp path
+        const videoBuffer = fs.readFileSync(videoPath)
         // Upload to media service
         const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
         const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
-        const videoBuffer = fs.readFileSync(tmpPath)
         const uploadResult = await uploadToMediaService(mediaUrl, mediaToken, videoBuffer, `recording-${sessionId}.webm`, 'video/webm', 'dream-recording', sessionId)
-        try { fs.unlinkSync(tmpPath) } catch {}
+        try { fs.unlinkSync(videoPath) } catch {}
         return { ok: true, ...uploadResult }
       } catch (e) {
         return { ok: false, error: 'Failed to save recording: ' + e.message }
