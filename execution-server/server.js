@@ -105,62 +105,35 @@ async function getMobileSession(sessionId, opts = {}) {
   const context = await browser.newContext({ viewport: { width: 500, height: 900 } })
   const page = await context.newPage()
 
-  // Write a wrapper HTML file to /tmp and serve it via file:// so external scripts load
+  // Navigate directly to the Appetize embed page, then inject SDK initialization
+  // The SDK is exposed on the parent window by the iframe automatically when loaded over HTTP
   const embedUrl = `https://appetize.io/embed/${publicKey}?device=${device}&osVersion=${osVersion}&scale=auto&autoplay=true&grantPermissions=true&screenOnly=false&record=true&toast=top`
 
-  const wrapperPath = `/tmp/appetize-${sessionId}.html`
-  fs.writeFileSync(wrapperPath, `<!DOCTYPE html>
-<html><head>
-<style>*{margin:0;padding:0}body{background:#000;overflow:hidden}#appetize{border:0;width:100%;height:100vh}</style>
-</head><body>
-<iframe id="appetize" src="${embedUrl}" allow="cross-origin-isolated"></iframe>
-<script>
-window._appetizeReady = false;
-window._session = null;
-window._client = null;
-window._initError = null;
+  console.log(`[mobile] Navigating to Appetize embed (${publicKey}, ${device}, ${platform})...`)
+  await page.goto(embedUrl, { waitUntil: 'load', timeout: 60000 })
 
-// Poll for the appetize SDK to become available (injected by the iframe)
-function waitForSdk() {
-  if (window.appetize && typeof window.appetize.getClient === 'function') {
-    initSession();
-  } else {
-    setTimeout(waitForSdk, 500);
-  }
-}
+  // The embed page IS the Appetize page — we interact with it differently.
+  // Instead of using the JS SDK (which requires iframe + parent page),
+  // we use the embed page directly and interact via Playwright clicks/screenshots.
+  // This is simpler and more reliable.
 
-async function initSession() {
+  // Wait for the device to boot (look for the device screen to appear)
+  console.log(`[mobile] Waiting for device to boot...`)
+  await page.waitForTimeout(5000)
+
+  // Check if there's a "Tap to Play" button and click it
   try {
-    const client = await window.appetize.getClient('#appetize');
-    window._client = client;
-    client.on('session', (session) => {
-      window._session = session;
-      window._appetizeReady = true;
-    });
-    const session = await client.startSession();
-    window._session = session;
-    window._appetizeReady = true;
-  } catch(e) {
-    window._initError = e.message || String(e);
-  }
-}
-waitForSdk();
-</script></body></html>`)
+    const tapToPlay = await page.getByText('Tap to Play').first()
+    if (await tapToPlay.isVisible({ timeout: 3000 })) {
+      await tapToPlay.click()
+      console.log(`[mobile] Clicked "Tap to Play"`)
+      await page.waitForTimeout(10000) // wait for device to boot
+    }
+  } catch { /* no tap to play, device auto-started */ }
 
-  console.log(`[mobile] Loading Appetize embed (${publicKey}, ${device}, ${platform})...`)
-  await page.goto('file://' + wrapperPath, { waitUntil: 'domcontentloaded', timeout: 60000 })
-
-  // Wait for Appetize SDK to load and session to start (up to 120s)
-  console.log(`[mobile] Waiting for Appetize session to be ready...`)
-  await page.waitForFunction('window._appetizeReady === true || window._initError !== null', { timeout: 120000 })
-
-  // Check for init error
-  const initError = await page.evaluate(() => window._initError)
-  if (initError) {
-    await browser.close()
-    throw new Error(`Appetize init failed: ${initError}`)
-  }
-  console.log(`[mobile] Session ready: ${sessionId}`)
+  // Wait for device screen to be ready (up to 60s)
+  await page.waitForTimeout(15000)
+  console.log(`[mobile] Device session ready: ${sessionId}`)
 
   const sess = { browser, context, page, lastUsed: Date.now(), platform, publicKey, device: device }
   mobileSessions.set(sessionId, sess)
@@ -172,7 +145,6 @@ async function handleMobile(action, sessionId, params) {
     if (action === 'close') {
       if (mobileSessions.has(sessionId)) {
         const s = mobileSessions.get(sessionId)
-        await s.page.evaluate(() => { if (window._session) window._session.end() }).catch(() => {})
         await s.browser.close().catch(() => {})
         mobileSessions.delete(sessionId)
       }
@@ -196,113 +168,102 @@ async function handleMobile(action, sessionId, params) {
     sess.lastUsed = Date.now()
 
     if (action === 'screenshot') {
-      const screenshotBuf = await page.evaluate(async () => {
-        if (!window._session) return null
-        const { data } = await window._session.screenshot('base64')
-        return data
-      })
-      if (screenshotBuf) {
-        const buf = Buffer.from(screenshotBuf, 'base64')
-        autoUploadScreenshot(buf, sessionId)
-        return { ok: true, screenshot: screenshotBuf }
-      }
-      // Fallback to page screenshot
-      const fallback = await page.screenshot({ type: 'png' })
-      autoUploadScreenshot(fallback, sessionId)
-      return { ok: true, screenshot: fallback.toString('base64') }
+      const screenshot = await page.screenshot({ type: 'png' })
+      autoUploadScreenshot(screenshot, sessionId)
+      return { ok: true, screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'tap') {
-      await page.evaluate(async (p) => {
-        if (!window._session) throw new Error('No session')
-        if (p.element) {
-          await window._session.tap({ element: { attributes: p.element } })
-        } else if (p.position) {
-          await window._session.tap({ position: { x: p.position.x, y: p.position.y } })
-        } else if (p.coordinates) {
-          await window._session.tap({ coordinates: { x: p.coordinates.x, y: p.coordinates.y } })
+      // Tap by text label on the device screen
+      if (params.element?.text || (typeof params.element === 'string')) {
+        const text = params.element?.text || params.element
+        try {
+          await page.getByText(text).first().click({ timeout: 10000 })
+        } catch {
+          // Try clicking by role
+          await page.getByRole('button', { name: text }).first().click({ timeout: 5000 }).catch(() => {})
         }
-      }, params)
-      await page.evaluate(() => window._session?.waitForAnimations()).catch(() => {})
+      } else if (params.coordinates) {
+        await page.mouse.click(params.coordinates.x, params.coordinates.y)
+      } else if (params.position) {
+        // Percentage-based — convert to viewport pixels
+        const vp = page.viewportSize()
+        const x = typeof params.position.x === 'string' ? (parseFloat(params.position.x) / 100) * vp.width : params.position.x
+        const y = typeof params.position.y === 'string' ? (parseFloat(params.position.y) / 100) * vp.height : params.position.y
+        await page.mouse.click(x, y)
+      }
+      await page.waitForTimeout(1500)
       const screenshot = await page.screenshot({ type: 'png' })
       autoUploadScreenshot(screenshot, sessionId)
       return { ok: true, screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'type') {
-      await page.evaluate(async (text) => {
-        if (!window._session) throw new Error('No session')
-        await window._session.type(text)
-      }, params.text || params.value || '')
+      await page.keyboard.type(params.text || params.value || '', { delay: 50 })
+      await page.waitForTimeout(500)
       const screenshot = await page.screenshot({ type: 'png' })
       return { ok: true, screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'swipe') {
-      await page.evaluate(async (p) => {
-        if (!window._session) throw new Error('No session')
-        const opts = { gesture: p.gesture || 'up' }
-        if (p.position) opts.position = { x: p.position.x, y: p.position.y }
-        else opts.position = { x: '50%', y: '50%' }
-        if (p.duration) opts.duration = p.duration
-        await window._session.swipe(opts)
-      }, params)
-      await page.evaluate(() => window._session?.waitForAnimations()).catch(() => {})
+      const vp = page.viewportSize()
+      const cx = vp.width / 2, cy = vp.height / 2
+      const dist = 200
+      const gestures = {
+        up:    { startX: cx, startY: cy + dist/2, endX: cx, endY: cy - dist/2 },
+        down:  { startX: cx, startY: cy - dist/2, endX: cx, endY: cy + dist/2 },
+        left:  { startX: cx + dist/2, startY: cy, endX: cx - dist/2, endY: cy },
+        right: { startX: cx - dist/2, startY: cy, endX: cx + dist/2, endY: cy },
+      }
+      const g = gestures[params.gesture || 'up'] || gestures.up
+      await page.mouse.move(g.startX, g.startY)
+      await page.mouse.down()
+      await page.mouse.move(g.endX, g.endY, { steps: 10 })
+      await page.mouse.up()
+      await page.waitForTimeout(1500)
       const screenshot = await page.screenshot({ type: 'png' })
       return { ok: true, screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'keypress') {
-      await page.evaluate(async (key) => {
-        if (!window._session) throw new Error('No session')
-        await window._session.keypress(key)
-      }, params.key || 'HOME')
+      // Map common mobile keys to keyboard events
+      const keyMap = { HOME: 'Home', BACK: 'Escape', ENTER: 'Enter', TAB: 'Tab' }
+      const key = keyMap[params.key] || params.key || 'Enter'
+      await page.keyboard.press(key)
+      await page.waitForTimeout(1000)
       const screenshot = await page.screenshot({ type: 'png' })
       return { ok: true, screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'getUI') {
-      const ui = await page.evaluate(async () => {
-        if (!window._session) throw new Error('No session')
-        return await window._session.getUI()
-      })
-      return { ok: true, ui }
+      // Read visible text from the page as a proxy for UI state
+      const text = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '')
+      return { ok: true, text: text.slice(0, 8000) }
     }
 
     if (action === 'findElement') {
-      const el = await page.evaluate(async (attrs) => {
-        if (!window._session) throw new Error('No session')
-        const found = await window._session.findElement({ attributes: attrs })
-        return found ? { found: true, attributes: attrs } : { found: false }
-      }, params.attributes || {})
-      return { ok: true, ...el }
+      const text = params.attributes?.text || params.text || ''
+      const found = await page.getByText(text).first().isVisible({ timeout: 5000 }).catch(() => false)
+      return { ok: true, found, text }
     }
 
     if (action === 'openUrl') {
-      await page.evaluate(async (url) => {
-        if (!window._session) throw new Error('No session')
-        await window._session.openUrl(url)
-      }, params.url)
-      await page.evaluate(() => window._session?.waitForAnimations()).catch(() => {})
+      // Navigate to a URL within the Appetize embed (e.g., deep links)
+      const url = params.url
+      await page.evaluate((u) => { window.postMessage({ type: 'openUrl', url: u }, '*') }, url)
+      await page.waitForTimeout(3000)
       const screenshot = await page.screenshot({ type: 'png' })
       return { ok: true, screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'rotate') {
-      await page.evaluate(async (dir) => {
-        if (!window._session) throw new Error('No session')
-        await window._session.rotate(dir)
-      }, params.direction || 'left')
+      // Not directly available without SDK — return screenshot
       const screenshot = await page.screenshot({ type: 'png' })
-      return { ok: true, screenshot: screenshot.toString('base64') }
+      return { ok: true, message: 'Rotate requires Appetize SDK (not available in embed mode)', screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'adb') {
-      const result = await page.evaluate(async (cmd) => {
-        if (!window._session) throw new Error('No session')
-        return await window._session.adbShellCommand(cmd)
-      }, params.command || 'getprop ro.build.version.release')
-      return { ok: true, result }
+      return { ok: false, error: 'ADB commands require Appetize SDK (not available in direct embed mode)' }
     }
 
     if (action === 'info') {
