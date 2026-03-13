@@ -67,6 +67,238 @@ const audioStore = new Map() // id → Buffer (ogg/mp3)
 // ── Audio capture processes ───────────────────────────────────────────────────
 const audioCaptures = new Map() // captureId → { proc, outputFile }
 
+// ── Mobile emulator sessions (Appetize.io) ──────────────────────────────────
+// Uses Playwright to load Appetize embed iframe, then calls SDK methods via page.evaluate()
+const mobileSessions = new Map() // sessionId → { browser, context, page, lastUsed, platform, publicKey }
+const APPETIZE_API_KEY = process.env.APPETIZE_API_KEY || 'tok_xpy2mehdhrnm43i647udjrvk64'
+const DEFAULT_ANDROID_KEY = process.env.APPETIZE_ANDROID_KEY || 'xuzpcbnvltosxe3go3pihml7lm'
+
+// Reap idle mobile sessions every 60s
+setInterval(async () => {
+  const now = Date.now()
+  for (const [id, s] of mobileSessions) {
+    if (now - s.lastUsed > SESSION_IDLE_TIMEOUT_MS) {
+      console.log(`[mobile] Reaping idle session: ${id}`)
+      await s.browser.close().catch(() => {})
+      mobileSessions.delete(id)
+    }
+  }
+}, 60000)
+
+async function getMobileSession(sessionId, opts = {}) {
+  if (mobileSessions.has(sessionId)) {
+    const s = mobileSessions.get(sessionId)
+    s.lastUsed = Date.now()
+    return s
+  }
+
+  const { chromium } = require('playwright')
+  const publicKey = opts.publicKey || DEFAULT_ANDROID_KEY
+  const platform = opts.platform || 'android'
+  const device = opts.device || (platform === 'android' ? 'pixel7' : 'iphone14pro')
+  const osVersion = opts.osVersion || (platform === 'android' ? '13.0' : '16')
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+  })
+  const context = await browser.newContext({ viewport: { width: 500, height: 900 } })
+  const page = await context.newPage()
+
+  // Build Appetize embed HTML with SDK
+  const embedHtml = `<!DOCTYPE html>
+<html><head><style>body{margin:0;background:#000}iframe{border:0;width:100%;height:100vh}</style></head>
+<body>
+<iframe id="appetize"
+  src="https://appetize.io/embed/${publicKey}?device=${device}&osVersion=${osVersion}&scale=auto&autoplay=true&grantPermissions=true&screenOnly=true&record=true&toast=top"
+  allow="cross-origin-isolated" crossorigin="anonymous"></iframe>
+<script>
+  window._appetizeReady = false;
+  window._session = null;
+  window._client = null;
+  (async () => {
+    try {
+      const client = await window.appetize.getClient('#appetize');
+      window._client = client;
+      const session = await client.startSession();
+      window._session = session;
+      window._appetizeReady = true;
+      console.log('[appetize] Session ready');
+    } catch(e) {
+      console.error('[appetize] Init error:', e);
+    }
+  })();
+</script>
+</body></html>`
+
+  await page.setContent(embedHtml, { waitUntil: 'domcontentloaded', timeout: 60000 })
+
+  // Wait for Appetize SDK to load and session to start (up to 90s)
+  console.log(`[mobile] Waiting for Appetize session (${publicKey}, ${device}, ${platform})...`)
+  await page.waitForFunction('window._appetizeReady === true', { timeout: 90000 })
+  console.log(`[mobile] Session ready: ${sessionId}`)
+
+  const sess = { browser, context, page, lastUsed: Date.now(), platform, publicKey, device: device }
+  mobileSessions.set(sessionId, sess)
+  return sess
+}
+
+async function handleMobile(action, sessionId, params) {
+  try {
+    if (action === 'close') {
+      if (mobileSessions.has(sessionId)) {
+        const s = mobileSessions.get(sessionId)
+        await s.page.evaluate(() => { if (window._session) window._session.end() }).catch(() => {})
+        await s.browser.close().catch(() => {})
+        mobileSessions.delete(sessionId)
+      }
+      return { ok: true, message: 'Mobile session closed.' }
+    }
+
+    if (action === 'launch') {
+      const sess = await getMobileSession(sessionId, params)
+      // Take initial screenshot
+      const screenshot = await sess.page.screenshot({ type: 'png' })
+      autoUploadScreenshot(screenshot, sessionId)
+      return { ok: true, platform: params.platform || 'android', device: sess.device, screenshot: screenshot.toString('base64') }
+    }
+
+    // All other actions require an active session
+    if (!mobileSessions.has(sessionId)) {
+      return { ok: false, error: 'No active mobile session. Call launch first.' }
+    }
+    const sess = mobileSessions.get(sessionId)
+    const { page } = sess
+    sess.lastUsed = Date.now()
+
+    if (action === 'screenshot') {
+      const screenshotBuf = await page.evaluate(async () => {
+        if (!window._session) return null
+        const { data } = await window._session.screenshot('base64')
+        return data
+      })
+      if (screenshotBuf) {
+        const buf = Buffer.from(screenshotBuf, 'base64')
+        autoUploadScreenshot(buf, sessionId)
+        return { ok: true, screenshot: screenshotBuf }
+      }
+      // Fallback to page screenshot
+      const fallback = await page.screenshot({ type: 'png' })
+      autoUploadScreenshot(fallback, sessionId)
+      return { ok: true, screenshot: fallback.toString('base64') }
+    }
+
+    if (action === 'tap') {
+      await page.evaluate(async (p) => {
+        if (!window._session) throw new Error('No session')
+        if (p.element) {
+          await window._session.tap({ element: { attributes: p.element } })
+        } else if (p.position) {
+          await window._session.tap({ position: { x: p.position.x, y: p.position.y } })
+        } else if (p.coordinates) {
+          await window._session.tap({ coordinates: { x: p.coordinates.x, y: p.coordinates.y } })
+        }
+      }, params)
+      await page.evaluate(() => window._session?.waitForAnimations()).catch(() => {})
+      const screenshot = await page.screenshot({ type: 'png' })
+      autoUploadScreenshot(screenshot, sessionId)
+      return { ok: true, screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'type') {
+      await page.evaluate(async (text) => {
+        if (!window._session) throw new Error('No session')
+        await window._session.type(text)
+      }, params.text || params.value || '')
+      const screenshot = await page.screenshot({ type: 'png' })
+      return { ok: true, screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'swipe') {
+      await page.evaluate(async (p) => {
+        if (!window._session) throw new Error('No session')
+        const opts = { gesture: p.gesture || 'up' }
+        if (p.position) opts.position = { x: p.position.x, y: p.position.y }
+        else opts.position = { x: '50%', y: '50%' }
+        if (p.duration) opts.duration = p.duration
+        await window._session.swipe(opts)
+      }, params)
+      await page.evaluate(() => window._session?.waitForAnimations()).catch(() => {})
+      const screenshot = await page.screenshot({ type: 'png' })
+      return { ok: true, screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'keypress') {
+      await page.evaluate(async (key) => {
+        if (!window._session) throw new Error('No session')
+        await window._session.keypress(key)
+      }, params.key || 'HOME')
+      const screenshot = await page.screenshot({ type: 'png' })
+      return { ok: true, screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'getUI') {
+      const ui = await page.evaluate(async () => {
+        if (!window._session) throw new Error('No session')
+        return await window._session.getUI()
+      })
+      return { ok: true, ui }
+    }
+
+    if (action === 'findElement') {
+      const el = await page.evaluate(async (attrs) => {
+        if (!window._session) throw new Error('No session')
+        const found = await window._session.findElement({ attributes: attrs })
+        return found ? { found: true, attributes: attrs } : { found: false }
+      }, params.attributes || {})
+      return { ok: true, ...el }
+    }
+
+    if (action === 'openUrl') {
+      await page.evaluate(async (url) => {
+        if (!window._session) throw new Error('No session')
+        await window._session.openUrl(url)
+      }, params.url)
+      await page.evaluate(() => window._session?.waitForAnimations()).catch(() => {})
+      const screenshot = await page.screenshot({ type: 'png' })
+      return { ok: true, screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'rotate') {
+      await page.evaluate(async (dir) => {
+        if (!window._session) throw new Error('No session')
+        await window._session.rotate(dir)
+      }, params.direction || 'left')
+      const screenshot = await page.screenshot({ type: 'png' })
+      return { ok: true, screenshot: screenshot.toString('base64') }
+    }
+
+    if (action === 'adb') {
+      const result = await page.evaluate(async (cmd) => {
+        if (!window._session) throw new Error('No session')
+        return await window._session.adbShellCommand(cmd)
+      }, params.command || 'getprop ro.build.version.release')
+      return { ok: true, result }
+    }
+
+    if (action === 'info') {
+      return {
+        ok: true,
+        sessionId,
+        platform: sess.platform,
+        device: sess.device,
+        publicKey: sess.publicKey,
+        activeSessions: mobileSessions.size,
+      }
+    }
+
+    return { ok: false, error: `Unknown mobile action: ${action}` }
+
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+}
+
 // ── Device profiles for browser emulation ────────────────────────────────────
 const DEVICES = {
   desktop: {
@@ -641,7 +873,8 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       ok: true, uptime: process.uptime(), workDir: WORK_DIR,
-      browser: { active: browserSessions.size, max: MAX_BROWSER_SESSIONS, idleTimeoutMin: SESSION_IDLE_TIMEOUT_MS / 60000, sessions }
+      browser: { active: browserSessions.size, max: MAX_BROWSER_SESSIONS, idleTimeoutMin: SESSION_IDLE_TIMEOUT_MS / 60000, sessions },
+      mobile: { active: mobileSessions.size, sessions: [...mobileSessions.keys()] }
     }))
     return
   }
@@ -1051,6 +1284,25 @@ const server = http.createServer((req, res) => {
         const { action, sessionId = 'default', ...params } = JSON.parse(body)
         console.log(`[exec-server] [${sessionId}] browser.${action}`)
         const result = await handleBrowser(action, sessionId, params)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(result))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: false, error: err.message }))
+      }
+    })
+    return
+  }
+
+  // POST /mobile — mobile device emulator via Appetize.io
+  if (req.method === 'POST' && url.pathname === '/mobile') {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const { action, sessionId = 'mobile-default', ...params } = JSON.parse(body)
+        console.log(`[exec-server] [${sessionId}] mobile.${action}`)
+        const result = await handleMobile(action, sessionId, params)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result))
       } catch (err) {
