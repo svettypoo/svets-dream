@@ -178,6 +178,11 @@ async function getSession(sessionId, opts = {}) {
 
   const browser = await chromium.launch({ headless: true, args })
   const permissions = opts.fakeAudio ? ['microphone', 'camera'] : []
+  // Video recording dir
+  const recordVideoOpts = opts.recordVideo ? {
+    recordVideo: { dir: '/tmp/recordings/', size: { width: 1280, height: 720 } }
+  } : {}
+
   const context = await browser.newContext({
     viewport: device.viewport,
     userAgent: device.userAgent,
@@ -185,6 +190,7 @@ async function getSession(sessionId, opts = {}) {
     isMobile: device.isMobile,
     hasTouch: device.hasTouch,
     permissions,
+    ...recordVideoOpts,
   })
   const page = await context.newPage()
   // Grant mic/camera permissions to all origins if fakeAudio
@@ -202,6 +208,55 @@ async function closeSession(sessionId) {
   const { browser } = browserSessions.get(sessionId)
   await browser.close().catch(() => {})
   browserSessions.delete(sessionId)
+}
+
+// ── Upload to svet-media service ──────────────────────────────────────────
+async function uploadToMediaService(mediaUrl, mediaToken, buffer, filename, mime, source, sessionId) {
+  return new Promise((resolve, reject) => {
+    const boundary = '----SvetMedia' + Date.now()
+    const parts = []
+    // file part
+    parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`)
+    parts.push(buffer)
+    parts.push(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="source"\r\n\r\n${source}`)
+    parts.push(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="session_id"\r\n\r\n${sessionId || 'unknown'}`)
+    parts.push(`\r\n--${boundary}--\r\n`)
+
+    const body = Buffer.concat(parts.map(p => typeof p === 'string' ? Buffer.from(p) : p))
+    const url = new URL(mediaUrl + '/upload')
+    const mod = url.protocol === 'https:' ? require('https') : http
+
+    const req = mod.request({
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${mediaToken}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+      }
+    }, res => {
+      let data = ''
+      res.on('data', c => data += c)
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)) } catch { resolve({ ok: false, raw: data }) }
+      })
+    })
+    req.on('error', e => resolve({ ok: false, error: e.message }))
+    req.write(body)
+    req.end()
+  })
+}
+
+// Auto-upload screenshot to media service (fire-and-forget)
+function autoUploadScreenshot(screenshotBuf, sessionId) {
+  const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
+  const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
+  if (!mediaUrl) return
+  uploadToMediaService(mediaUrl, mediaToken, screenshotBuf, `screenshot-${Date.now()}.png`, 'image/png', 'dream', sessionId)
+    .then(r => { if (r.ok) console.log(`[media] Auto-uploaded screenshot: ${r.url}`) })
+    .catch(() => {})
 }
 
 async function handleBrowser(action, sessionId, params) {
@@ -223,12 +278,14 @@ async function handleBrowser(action, sessionId, params) {
       await page.goto(params.url, { waitUntil: 'domcontentloaded', timeout: 300000 })
       const title = await page.title()
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
+      autoUploadScreenshot(screenshot, sessionId)
       return { ok: true, title, url: page.url(), screenshot: screenshot.toString('base64') }
     }
 
     if (action === 'screenshot') {
       const screenshot = await page.screenshot({ type: 'png', fullPage: params.fullPage || false })
       const title = await page.title()
+      autoUploadScreenshot(screenshot, sessionId)
       return { ok: true, title, url: page.url(), screenshot: screenshot.toString('base64') }
     }
 
@@ -355,7 +412,11 @@ async function handleBrowser(action, sessionId, params) {
         audioStore.set(params.captureId, buf)
         if (audioStore.size > 50) audioStore.delete(audioStore.keys().next().value)
         audioCaptures.delete(params.captureId)
-        return { ok: true, captureId: params.captureId, sizeBytes: buf.length }
+        // Auto-upload audio to media service
+        const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
+        const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
+        const mediaResult = await uploadToMediaService(mediaUrl, mediaToken, buf, `audio-${params.captureId}.ogg`, 'audio/ogg', 'dream-capture', sessionId).catch(() => null)
+        return { ok: true, captureId: params.captureId, sizeBytes: buf.length, media: mediaResult }
       } catch(e) {
         return { ok: false, error: 'Could not read capture: ' + e.message }
       }
@@ -366,6 +427,49 @@ async function handleBrowser(action, sessionId, params) {
       const d = session.device || DEVICES.desktop
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
       return { ok: true, device: d.label, viewport: d.viewport, isMobile: d.isMobile, hasTouch: d.hasTouch, fakeAudio: !!(session.opts && session.opts.fakeAudio), screenshot: screenshot.toString('base64') }
+    }
+
+    // ── Start video recording — reopens session with Playwright recordVideo ───
+    if (action === 'start_recording') {
+      // Close current session and reopen with video recording enabled
+      await closeSession(sessionId)
+      const newOpts = { ...(session.opts || {}), recordVideo: true }
+      if (params.device) newOpts.device = params.device
+      const newSession = await getSession(sessionId, newOpts)
+      // Navigate to current URL if provided
+      if (params.url) {
+        await newSession.page.goto(params.url, { waitUntil: 'domcontentloaded', timeout: 300000 }).catch(() => {})
+      }
+      const screenshot = await newSession.page.screenshot({ type: 'png', fullPage: false })
+      return { ok: true, message: 'Video recording started. Navigate and interact, then call stop_recording.', sessionId, recording: true, screenshot: screenshot.toString('base64') }
+    }
+
+    // ── Stop video recording — saves video and uploads to media service ────────
+    if (action === 'stop_recording') {
+      const video = page.video()
+      if (!video) return { ok: false, error: 'No active video recording on this session' }
+      const tmpPath = `/tmp/recording-${sessionId}-${Date.now()}.webm`
+      try {
+        await video.saveAs(tmpPath)
+        // Close and reopen session without recording
+        await closeSession(sessionId)
+        // Upload to media service
+        const mediaUrl = process.env.MEDIA_SERVICE_URL || 'http://svet-media:3021'
+        const mediaToken = process.env.MEDIA_TOKEN || 'svets-media-token-2026'
+        const videoBuffer = fs.readFileSync(tmpPath)
+        const uploadResult = await uploadToMediaService(mediaUrl, mediaToken, videoBuffer, `recording-${sessionId}.webm`, 'video/webm', 'dream-recording', sessionId)
+        try { fs.unlinkSync(tmpPath) } catch {}
+        return { ok: true, ...uploadResult }
+      } catch (e) {
+        return { ok: false, error: 'Failed to save recording: ' + e.message }
+      }
+    }
+
+    // ── Recording status ──────────────────────────────────────────────────────
+    if (action === 'recording_status') {
+      const video = page.video()
+      const isRecording = !!(video && session.opts && session.opts.recordVideo)
+      return { ok: true, recording: isRecording, sessionId }
     }
 
     return { ok: false, error: `Unknown action: ${action}` }
