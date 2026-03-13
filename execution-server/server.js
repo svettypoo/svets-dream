@@ -105,37 +105,52 @@ async function getMobileSession(sessionId, opts = {}) {
   const context = await browser.newContext({ viewport: { width: 500, height: 900 } })
   const page = await context.newPage()
 
-  // Build Appetize embed HTML with SDK
-  const embedHtml = `<!DOCTYPE html>
-<html><head><style>body{margin:0;background:#000}iframe{border:0;width:100%;height:100vh}</style></head>
-<body>
-<iframe id="appetize"
-  src="https://appetize.io/embed/${publicKey}?device=${device}&osVersion=${osVersion}&scale=auto&autoplay=true&grantPermissions=true&screenOnly=true&record=true&toast=top"
-  allow="cross-origin-isolated" crossorigin="anonymous"></iframe>
+  // Navigate to a wrapper page that loads the Appetize SDK properly
+  const embedUrl = `https://appetize.io/embed/${publicKey}?device=${device}&osVersion=${osVersion}&scale=auto&autoplay=true&grantPermissions=true&screenOnly=false&record=true&toast=top`
+
+  // First, navigate to a page that hosts the iframe + SDK
+  const wrapperHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+<html><head>
+<style>*{margin:0;padding:0}body{background:#000;overflow:hidden}#appetize{border:0;width:100%;height:100vh}</style>
+</head><body>
+<iframe id="appetize" src="${embedUrl}" allow="cross-origin-isolated"></iframe>
+<script src="https://js.appetize.io/v3/sdk.js"></script>
 <script>
-  window._appetizeReady = false;
-  window._session = null;
-  window._client = null;
-  (async () => {
-    try {
-      const client = await window.appetize.getClient('#appetize');
-      window._client = client;
-      const session = await client.startSession();
+window._appetizeReady = false;
+window._session = null;
+window._client = null;
+window._initError = null;
+(async function init() {
+  try {
+    const client = await window.appetize.getClient('#appetize');
+    window._client = client;
+    client.on('session', async (session) => {
       window._session = session;
       window._appetizeReady = true;
-      console.log('[appetize] Session ready');
-    } catch(e) {
-      console.error('[appetize] Init error:', e);
-    }
-  })();
-</script>
-</body></html>`
+    });
+    const session = await client.startSession();
+    window._session = session;
+    window._appetizeReady = true;
+  } catch(e) {
+    window._initError = e.message || String(e);
+    console.error('[appetize] Init error:', e);
+  }
+})();
+</script></body></html>`)}`
 
-  await page.setContent(embedHtml, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  console.log(`[mobile] Loading Appetize embed (${publicKey}, ${device}, ${platform})...`)
+  await page.goto(wrapperHtml, { waitUntil: 'domcontentloaded', timeout: 60000 })
 
-  // Wait for Appetize SDK to load and session to start (up to 90s)
-  console.log(`[mobile] Waiting for Appetize session (${publicKey}, ${device}, ${platform})...`)
-  await page.waitForFunction('window._appetizeReady === true', { timeout: 90000 })
+  // Wait for Appetize SDK to load and session to start (up to 120s)
+  console.log(`[mobile] Waiting for Appetize session to be ready...`)
+  await page.waitForFunction('window._appetizeReady === true || window._initError !== null', { timeout: 120000 })
+
+  // Check for init error
+  const initError = await page.evaluate(() => window._initError)
+  if (initError) {
+    await browser.close()
+    throw new Error(`Appetize init failed: ${initError}`)
+  }
   console.log(`[mobile] Session ready: ${sessionId}`)
 
   const sess = { browser, context, page, lastUsed: Date.now(), platform, publicKey, device: device }
