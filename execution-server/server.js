@@ -390,18 +390,25 @@ async function getSession(sessionId, opts = {}) {
 
   // Fake media input — feeds WAV + Y4M files as mic/camera source for WebRTC
   if (opts.fakeAudio) {
-    const audioFile = fs.existsSync('/app/fake-conversation.wav')
-      ? '/app/fake-conversation.wav'
-      : '/app/test-audio.wav'
+    // Per-session audio file: pass fakeAudioFile="/app/fake-female.wav" etc.
+    let audioFile = opts.fakeAudioFile || ''
+    if (!audioFile || !fs.existsSync(audioFile)) {
+      audioFile = fs.existsSync('/app/fake-conversation.wav')
+        ? '/app/fake-conversation.wav'
+        : '/app/test-audio.wav'
+    }
     args.push(
       '--use-fake-device-for-media-stream',
       '--use-fake-ui-for-media-stream',
       `--use-file-for-fake-audio-capture=${audioFile}`,
       '--allow-file-access-from-files',
     )
-    // Add fake video capture if Y4M file exists
-    if (fs.existsSync('/app/fake-video.y4m')) {
-      args.push('--use-file-for-fake-video-capture=/app/fake-video.y4m')
+    // Per-session video file: pass fakeVideoFile="/app/custom-video.y4m" etc.
+    const videoFile = opts.fakeVideoFile && fs.existsSync(opts.fakeVideoFile)
+      ? opts.fakeVideoFile
+      : (fs.existsSync('/app/fake-video.y4m') ? '/app/fake-video.y4m' : '')
+    if (videoFile) {
+      args.push(`--use-file-for-fake-video-capture=${videoFile}`)
     }
   }
 
@@ -505,6 +512,8 @@ async function handleBrowser(action, sessionId, params) {
     const sessionOpts = {}
     if (params.device) sessionOpts.device = params.device
     if (params.fakeAudio) sessionOpts.fakeAudio = params.fakeAudio
+    if (params.fakeAudioFile) sessionOpts.fakeAudioFile = params.fakeAudioFile
+    if (params.fakeVideoFile) sessionOpts.fakeVideoFile = params.fakeVideoFile
 
     const session = await getSession(sessionId, sessionOpts)
     const { page } = session
