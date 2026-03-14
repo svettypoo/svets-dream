@@ -2608,7 +2608,10 @@ try {
 
 // ── Start Xvfb virtual display (needed for WebRTC in non-headless mode) ──────
 try {
-  execSync('Xvfb :99 -screen 0 1280x1024x24 -ac &', { stdio: 'pipe' })
+  const xvfbProc = spawn('Xvfb', [':99', '-screen', '0', '1280x1024x24', '-ac'], {
+    stdio: 'ignore', detached: true
+  })
+  xvfbProc.unref()
   process.env.DISPLAY = ':99'
   console.log('[exec-server] Xvfb virtual display started on :99')
 } catch (e) {
