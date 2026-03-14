@@ -2597,11 +2597,31 @@ try {
 }
 
 // ── PulseAudio virtual sink setup (for audio capture) ─────────────────────────
+function ensurePulseAudio() {
+  try {
+    execSync('pactl info >/dev/null 2>&1', { stdio: 'pipe' })
+    return true // already running
+  } catch {
+    try {
+      // Fix client.conf if needed
+      const paClientConf = require('path').join(process.env.HOME || '/root', '.config/pulse/client.conf')
+      try { fs.writeFileSync(paClientConf, 'autospawn = yes\n') } catch {}
+      execSync('pulseaudio --start --daemonize --log-level=error 2>/dev/null || true', { stdio: 'pipe' })
+      execSync('pactl load-module module-null-sink sink_name=virtual_sink sink_properties=device.description=VirtualSink 2>/dev/null || true', { stdio: 'pipe' })
+      execSync('pactl set-default-sink virtual_sink 2>/dev/null || true', { stdio: 'pipe' })
+      console.log('[exec-server] PulseAudio restarted with virtual sink')
+      return true
+    } catch (e) {
+      return false
+    }
+  }
+}
 try {
-  execSync('pulseaudio --start --daemonize --log-level=error 2>/dev/null || true', { stdio: 'pipe' })
-  execSync('pactl load-module module-null-sink sink_name=virtual_sink sink_properties=device.description=VirtualSink 2>/dev/null || true', { stdio: 'pipe' })
-  execSync('pactl set-default-sink virtual_sink 2>/dev/null || true', { stdio: 'pipe' })
-  console.log('[exec-server] PulseAudio virtual sink ready')
+  if (ensurePulseAudio()) {
+    console.log('[exec-server] PulseAudio virtual sink ready')
+    // Watchdog: check every 30s and restart if dead
+    setInterval(() => { ensurePulseAudio() }, 30000)
+  }
 } catch (e) {
   console.log('[exec-server] PulseAudio not available (install pulseaudio for audio capture):', e.message)
 }
