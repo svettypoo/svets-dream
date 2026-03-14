@@ -1,474 +1,556 @@
 'use client'
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import dynamic from 'next/dynamic'
-import BuilderChat from '@/components/BuilderChat'
-import AgentModal from '@/components/AgentModal'
-import ActivityFeed from '@/components/ActivityFeed'
-import BuilderPreview from '@/components/BuilderPreview'
-import TasksPanel from '@/components/TasksPanel'
-import WorkflowsPanel from '@/components/WorkflowsPanel'
-import { createClient } from '@/lib/supabase'
-import { getPreset, DEFAULT_PRESET_ID } from '@/lib/org-presets'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  IconCamera, IconVideo, IconGitCommit, IconEye, IconServer,
+  IconSearch, IconArrowBackUp, IconClock, IconCheck, IconAlertTriangle,
+  IconBrandGithub, IconChevronDown, IconMoon, IconStar, IconFilter,
+  IconRefresh, IconMapPin, IconCpu, IconCloud, IconActivity,
+} from '@tabler/icons-react'
 
-const OrgChart = dynamic(() => import('@/components/OrgChart'), {
-  ssr: false,
-  loading: () => (
-    <div style={{
-      flex: 1, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexDirection: 'column', gap: 20,
-      background: 'radial-gradient(ellipse 80% 80% at 50% 50%, rgba(99,102,241,0.06) 0%, #070d1c 65%)',
-    }}>
-      <svg width="220" height="160" viewBox="0 0 220 160" fill="none" style={{opacity:0.5}}>
-        <line x1="110" y1="38" x2="45" y2="90" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 2"/>
-        <line x1="110" y1="38" x2="110" y2="90" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 2"/>
-        <line x1="110" y1="38" x2="175" y2="90" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 2"/>
-        <rect x="82" y="10" width="56" height="28" rx="8" fill="rgba(99,102,241,0.3)" stroke="#6366f1" strokeWidth="1.5"/>
-        <rect x="92" y="18" width="20" height="3" rx="1.5" fill="#a78bfa"/>
-        <rect x="92" y="25" width="30" height="2" rx="1" fill="rgba(167,139,250,0.5)"/>
-        {[17, 82, 147].map((x, i) => (
-          <g key={i}><rect x={x} y="90" width="56" height="22" rx="6" fill="rgba(99,102,241,0.15)" stroke="rgba(99,102,241,0.4)" strokeWidth="1"/>
-          <rect x={x+10} y="96" width="14" height="3" rx="1.5" fill="rgba(167,139,250,0.7)"/>
-          <rect x={x+10} y="103" width="24" height="2" rx="1" fill="rgba(167,139,250,0.3)"/></g>
-        ))}
-      </svg>
-      <div style={{ textAlign: 'center', maxWidth: 240 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: '#c4b5fd', marginBottom: 6 }}>Your AI team assembles here</div>
-        <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.7 }}>Describe what you want to build in the chat.</div>
-      </div>
-    </div>
-  ),
-})
+/* ── Module definitions ───────────────────────────── */
+const MODULES = [
+  { id: 'all', label: 'All Modules', color: '#3b82f6', icon: IconCloud },
+  { id: 'birthdayboard', label: 'BirthdayBoard', color: '#0ea5e9', icon: IconStar },
+  { id: 'meet', label: 'Meet', color: '#8b5cf6', icon: IconVideo },
+  { id: 'concierge', label: 'Concierge', color: '#06b6d4', icon: IconActivity },
+  { id: 'connect-ops', label: 'Connect Ops', color: '#f59e0b', icon: IconServer },
+  { id: 'parking', label: 'Parking', color: '#22c55e', icon: IconMapPin },
+  { id: 'atlas', label: 'Atlas', color: '#ef4444', icon: IconCpu },
+  { id: 'matchfit', label: 'MatchFit', color: '#ec4899', icon: IconActivity },
+  { id: 'frontdesk', label: 'Front Desk', color: '#6366f1', icon: IconServer },
+]
 
-function getDefaultOrg() {
-  const presetId = typeof window !== 'undefined'
-    ? (localStorage.getItem('sd_default_org_preset') || DEFAULT_PRESET_ID)
-    : DEFAULT_PRESET_ID
-  return getPreset(presetId).org
+const TABS = [
+  { id: 'screenshots', label: 'Screenshots', icon: IconCamera },
+  { id: 'videos', label: 'Videos', icon: IconVideo },
+  { id: 'changelog', label: 'Change Log', icon: IconGitCommit },
+  { id: 'liveview', label: 'Live View', icon: IconEye },
+]
+
+/* ── Demo data ────────────────────────────────────── */
+function generateDemoData() {
+  const modules = MODULES.filter(m => m.id !== 'all')
+  const screenshots = []
+  const videos = []
+  const changes = []
+  const now = Date.now()
+
+  for (let i = 0; i < 12; i++) {
+    const mod = modules[i % modules.length]
+    const ts = now - i * 1000 * 60 * (15 + Math.floor(Math.random() * 45))
+    screenshots.push({
+      id: `ss-${i}`,
+      module: mod.id,
+      moduleLabel: mod.label,
+      moduleColor: mod.color,
+      timestamp: ts,
+      commit: Math.random().toString(36).slice(2, 9),
+      url: null,
+    })
+  }
+
+  for (let i = 0; i < 6; i++) {
+    const mod = modules[i % modules.length]
+    const ts = now - i * 1000 * 60 * (30 + Math.floor(Math.random() * 60))
+    videos.push({
+      id: `vid-${i}`,
+      module: mod.id,
+      moduleLabel: mod.label,
+      moduleColor: mod.color,
+      timestamp: ts,
+      duration: 10 + Math.floor(Math.random() * 50),
+      commit: Math.random().toString(36).slice(2, 9),
+    })
+  }
+
+  for (let i = 0; i < 20; i++) {
+    const mod = modules[i % modules.length]
+    const ts = now - i * 1000 * 60 * (10 + Math.floor(Math.random() * 120))
+    const types = ['deploy', 'fix', 'feature', 'refactor', 'hotfix']
+    changes.push({
+      id: `ch-${i}`,
+      module: mod.id,
+      moduleLabel: mod.label,
+      moduleColor: mod.color,
+      timestamp: ts,
+      type: types[i % types.length],
+      commit: Math.random().toString(36).slice(2, 9),
+      message: [
+        'Fix: pin meeting toolbar to bottom on mobile',
+        'Add SSO unified login mockup',
+        'Fix CDN caching: set s-maxage=60',
+        'Update phone.conf nginx proxy to port 3002',
+        'Deploy Connect Ops to Hetzner via pm2',
+        'Add mobile bottom nav for Dialer',
+        'Fix: inline app launcher via client component',
+        'Refactor auth middleware for JWT cookie',
+        'Add Tabler Icons as standard icon library',
+        'Remove Forge app and clean up DNS',
+      ][i % 10],
+      canRevert: i < 8,
+    })
+  }
+
+  return { screenshots, videos, changes }
 }
 
-let nextTabId = 2
+/* ── Helpers ──────────────────────────────────────── */
+function fmtTime(ts) {
+  const d = new Date(ts)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' — ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Denver' }) + ' MT'
+}
 
-function TabStrip({ tabs, activeTabId, onSelect, onAdd, onRename, onClose }) {
-  const [editingId, setEditingId] = useState(null)
-  const [editValue, setEditValue] = useState('')
-  const inputRef = useRef(null)
+function fmtDuration(sec) {
+  return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`
+}
 
-  function startEdit(tab) {
-    setEditingId(tab.id)
-    setEditValue(tab.name)
-    setTimeout(() => inputRef.current?.select(), 0)
-  }
+const typeBadge = {
+  deploy: { bg: '#22c55e20', color: '#22c55e', label: 'Deploy' },
+  fix: { bg: '#ef444420', color: '#ef4444', label: 'Fix' },
+  feature: { bg: '#3b82f620', color: '#3b82f6', label: 'Feature' },
+  refactor: { bg: '#8b5cf620', color: '#8b5cf6', label: 'Refactor' },
+  hotfix: { bg: '#f59e0b20', color: '#f59e0b', label: 'Hotfix' },
+}
 
-  function commitEdit() {
-    if (editValue.trim()) onRename(editingId, editValue.trim())
-    setEditingId(null)
-  }
+/* ── Components ───────────────────────────────────── */
 
+function Sidebar({ activeModule, onSelect }) {
   return (
     <div style={{
-      height: 36, background: 'rgba(5,13,26,0.98)', borderBottom: '1px solid #0f172a',
-      display: 'flex', alignItems: 'stretch', gap: 0, flexShrink: 0, overflowX: 'auto',
-      scrollbarWidth: 'none', paddingLeft: 4,
+      width: 220, flexShrink: 0, background: '#0f1629', borderRight: '1px solid #1a2744',
+      display: 'flex', flexDirection: 'column', height: '100%',
     }}>
-      <style>{`div::-webkit-scrollbar{display:none}`}</style>
-      {tabs.map(tab => (
-        <div
-          key={tab.id}
-          onClick={() => onSelect(tab.id)}
-          onDoubleClick={() => startEdit(tab)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '0 12px', cursor: 'pointer', flexShrink: 0,
-            borderRight: '1px solid #0f172a',
-            background: tab.id === activeTabId ? 'rgba(99,102,241,0.12)' : 'transparent',
-            borderBottom: tab.id === activeTabId ? '2px solid #6366f1' : '2px solid transparent',
-            transition: 'all 0.15s',
-            position: 'relative',
-          }}
-        >
-          <div style={{
-            width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-            background: tab.orgData ? '#4ade80' : '#334155',
-            boxShadow: tab.orgData ? '0 0 5px #4ade80' : 'none',
-          }} />
-          {editingId === tab.id ? (
-            <input
-              ref={inputRef}
-              value={editValue}
-              onChange={e => setEditValue(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingId(null) }}
-              onClick={e => e.stopPropagation()}
-              style={{
-                background: 'transparent', border: 'none', outline: 'none',
-                color: '#e2e8f0', fontSize: 12, fontWeight: 600, width: 90,
-                fontFamily: 'inherit',
-              }}
-            />
-          ) : (
-            <span style={{
-              fontSize: 12, fontWeight: tab.id === activeTabId ? 600 : 400,
-              color: tab.id === activeTabId ? '#e2e8f0' : '#64748b',
-              maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {tab.name}
-            </span>
-          )}
-          {tabs.length > 1 && (
-            <button
-              onClick={e => { e.stopPropagation(); onClose(tab.id) }}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: '#334155', fontSize: 13, padding: '0 2px', lineHeight: 1,
-                display: 'flex', alignItems: 'center',
-              }}
-              title="Close tab"
-            >×</button>
-          )}
+      {/* Logo */}
+      <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 10,
+          background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 4px 16px rgba(59,130,246,0.4)',
+        }}>
+          <IconMoon size={18} color="#fff" />
         </div>
-      ))}
-      <button
-        onClick={onAdd}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: '#475569', fontSize: 18, padding: '0 14px',
-          display: 'flex', alignItems: 'center', lineHeight: 1,
-          transition: 'color 0.15s',
-        }}
-        onMouseEnter={e => e.currentTarget.style.color = '#a78bfa'}
-        onMouseLeave={e => e.currentTarget.style.color = '#475569'}
-        title="New project"
-      >+</button>
+        <span style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.3px' }}>Dream</span>
+      </div>
+
+      {/* Module list */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px' }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '8px 8px 6px', marginTop: 4 }}>
+          Modules
+        </div>
+        {MODULES.map(mod => {
+          const active = activeModule === mod.id
+          const Icon = mod.icon
+          return (
+            <button
+              key={mod.id}
+              onClick={() => onSelect(mod.id)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: active ? `${mod.color}18` : 'transparent',
+                transition: 'all 0.15s',
+                marginBottom: 2,
+              }}
+            >
+              <Icon size={16} color={active ? mod.color : '#475569'} />
+              <span style={{
+                fontSize: 13, fontWeight: active ? 600 : 400,
+                color: active ? '#e2e8f0' : '#94a3b8',
+              }}>{mod.label}</span>
+              {mod.id !== 'all' && (
+                <div style={{
+                  width: 7, height: 7, borderRadius: '50%', marginLeft: 'auto',
+                  background: '#22c55e',
+                  boxShadow: '0 0 6px rgba(34,197,94,0.5)',
+                }} />
+              )}
+            </button>
+          )
+        })}
+
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '16px 8px 6px' }}>
+          Infrastructure
+        </div>
+        <button
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+            background: 'transparent', transition: 'all 0.15s',
+          }}
+          onClick={() => onSelect('vms')}
+        >
+          <IconServer size={16} color="#475569" />
+          <span style={{ fontSize: 13, color: '#94a3b8' }}>VMs & Servers</span>
+        </button>
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: '12px 16px', borderTop: '1px solid #1a2744', fontSize: 10, color: '#334155' }}>
+        S&T Properties © 2026
+      </div>
     </div>
   )
 }
 
-export default function Dashboard() {
-  const [tabs, setTabs] = useState([{ id: 1, name: 'Project 1', orgData: null, builderActive: false }])
-  const [activeTabId, setActiveTabId] = useState(1)
-  const [selectedAgent, setSelectedAgent] = useState(null)
-  const [agentKickoff, setAgentKickoff] = useState(null)
-  const [user, setUser] = useState(null)
-  const [introNodeIds, setIntroNodeIds] = useState(new Set())
-  const [agentChats, setAgentChats] = useState({}) // nodeId → message string
-  const [activeAgents, setActiveAgents] = useState(new Set())
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null)
-  const [showActivity, setShowActivity] = useState(false)
-  const [showTasks, setShowTasks] = useState(true)
-  const [showWorkflows, setShowWorkflows] = useState(false)
-  const revealTimersRef = useRef([])
-  const chartRef = useRef(null)
-  const chatRef = useRef(null)
-  const router = useRouter()
-
-  const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0]
-  const tabsRef = useRef(tabs)
-  useEffect(() => { tabsRef.current = tabs }, [tabs])
-
-  // Auth disabled — open access
-
-  // Show BuilderPreview when agents start executing on active tab
-  useEffect(() => {
-    function onBuild() {
-      setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, builderActive: true } : t))
-      // Capture workspaceId from chat so BuilderPreview can fetch the file tree
-      if (chatRef.current?.getWorkspaceId) {
-        setCurrentWorkspaceId(chatRef.current.getWorkspaceId())
-      }
-    }
-    window.addEventListener('builderUpdate', onBuild)
-    return () => window.removeEventListener('builderUpdate', onBuild)
-  }, [activeTabId])
-
-  // Open agent modal from BuilderChat "Start Building" button
-  useEffect(() => {
-    function onOpenAgent(e) {
-      const { agent, kickoff } = e.detail || {}
-      if (!agent) return
-      setSelectedAgent(agent)
-      setAgentKickoff(kickoff || null)
-    }
-    window.addEventListener('openAgent', onOpenAgent)
-    return () => window.removeEventListener('openAgent', onOpenAgent)
-  }, [])
-
-  // Track which agents are actively working (spinning gear)
-  useEffect(() => {
-    function onAgentStatus(e) {
-      const { agentId, active } = e.detail || {}
-      if (!agentId) return
-      setActiveAgents(prev => {
-        const next = new Set(prev)
-        if (active) next.add(agentId)
-        else next.delete(agentId)
-        return next
-      })
-    }
-    window.addEventListener('agentStatus', onAgentStatus)
-    return () => window.removeEventListener('agentStatus', onAgentStatus)
-  }, [])
-
-  function updateTab(id, updates) {
-    setTabs(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
-  }
-
-  function addTab() {
-    const id = nextTabId++
-    const name = `Project ${id}`
-    setTabs(prev => [...prev, { id, name, orgData: null, builderActive: false }])
-    setActiveTabId(id)
-    setSelectedAgent(null)
-  }
-
-  function closeTab(id) {
-    setTabs(prev => {
-      const next = prev.filter(t => t.id !== id)
-      if (activeTabId === id) setActiveTabId(next[next.length - 1]?.id || next[0]?.id)
-      return next
-    })
-    setSelectedAgent(null)
-  }
-
-  function renameTab(id, name) {
-    updateTab(id, { name })
-  }
-
-  function selectTab(id) {
-    setActiveTabId(id)
-    setSelectedAgent(null)
-  }
-
-  const rulesNode = activeTab?.orgData?.nodes?.find(n => n.id === 'rules')
-  const rulesDescription = rulesNode?.description
-
-  function buildChatScript(nodes) {
-    const ids = new Set(nodes.map(n => n.id))
-    // Pick the top-level agent (non-rules, level 0)
-    const top = nodes.find(n => n.id !== 'rules' && (n.level ?? 0) === 0)
-    const topId = top?.id || null
-    // Build role map
-    const byId = Object.fromEntries(nodes.map(n => [n.id, n]))
-    const level1 = nodes.filter(n => n.id !== 'rules' && n.level === 1)
-    const level2 = nodes.filter(n => n.id !== 'rules' && n.level === 2)
-
-    const seq = []
-    let delay = 0
-    const add = (nodeId, message) => {
-      if (ids.has(nodeId)) { seq.push({ nodeId, message, delay }); delay += 3800 }
-    }
-
-    if (topId) add(topId, 'Team — stand by. New project incoming.')
-    if (level1[0]) add(level1[0].id, `Ready. Waiting on ${top?.label || 'lead'} direction.`)
-    if (topId) add(topId, 'Vision doc first. No code until I approve the spec.')
-    if (level2[0]) add(level2[0].id, 'Standing by. Tell me what to build.')
-    if (level1[0]) add(level1[0].id, 'Pulling competitor screenshots now.')
-    if (topId) add(topId, 'Show me Linear and Notion side-by-side. Then propose.')
-    return seq
-  }
-
-  const handleOrgUpdate = useCallback((newOrg) => {
-    if (!newOrg?.nodes?.length) return
-
-    // Skip reload if org structure hasn't changed (same node IDs)
-    const currentTab = tabsRef.current.find(t => t.id === activeTabId)
-    const currentNodes = currentTab?.orgData?.nodes
-    if (currentNodes?.length === newOrg.nodes.length) {
-      const currentIds = currentNodes.map(n => n.id).sort().join(',')
-      const newIds = newOrg.nodes.map(n => n.id).sort().join(',')
-      if (currentIds === newIds) return
-    }
-
-    // Clear any in-progress reveal
-    revealTimersRef.current.forEach(clearTimeout)
-    revealTimersRef.current = []
-
-    // Sort nodes: top-level (no parent) first, then by level
-    const sorted = [...newOrg.nodes].sort((a, b) => {
-      if (a.id === 'rules') return 1
-      if (b.id === 'rules') return -1
-      return (a.level ?? 0) - (b.level ?? 0)
-    })
-
-    // Start with empty org
-    const tabId = activeTabId
-    setTabs(prev => prev.map(t => t.id === tabId ? { ...t, orgData: { ...newOrg, nodes: [] } } : t))
-
-    // Reveal one by one
-    sorted.forEach((node, i) => {
-      const t = setTimeout(() => {
-        setTabs(prev => prev.map(t => {
-          if (t.id !== tabId) return t
-          const existing = t.orgData?.nodes || []
-          if (existing.find(n => n.id === node.id)) return t
-          return { ...t, orgData: { ...newOrg, nodes: [...existing, node] } }
-        }))
-        // Mark as new for speech bubble
-        setIntroNodeIds(prev => new Set([...prev, node.id]))
-        const clearT = setTimeout(() => {
-          setIntroNodeIds(prev => { const n = new Set(prev); n.delete(node.id); return n })
-        }, 5000)
-        revealTimersRef.current.push(clearT)
-      }, i * 750)
-      revealTimersRef.current.push(t)
-    })
-
-    // After all revealed, fire inter-agent chatter
-    const chatDelay = sorted.length * 750 + 800
-    const chatScript = buildChatScript(newOrg.nodes)
-    chatScript.forEach(({ nodeId, message, delay }) => {
-      const t = setTimeout(() => {
-        setAgentChats(prev => ({ ...prev, [nodeId]: message }))
-        const clearT = setTimeout(() => {
-          setAgentChats(prev => { const n = { ...prev }; delete n[nodeId]; return n })
-        }, 3500)
-        revealTimersRef.current.push(clearT)
-      }, chatDelay + delay)
-      revealTimersRef.current.push(t)
-    })
-
-    // After all revealed, take screenshot
-    const screenshotDelay = sorted.length * 750 + 1500
-    const screenshotT = setTimeout(async () => {
-      try {
-        const dataUrl = await chartRef.current?.screenshot()
-        if (!dataUrl) return
-        const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
-        // Skip if image is too large (>1.5MB base64 ≈ ~1.1MB image)
-        if (base64.length > 1500000) return
-        const res = await fetch('/api/assess', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image: base64,
-            context: `Org has ${newOrg.nodes?.length} nodes including ${newOrg.nodes?.filter(n => n.id !== 'rules').map(n => n.label).join(', ')}`,
-            question: 'Does this AI agent org chart look correct and complete? Check all nodes are visible, connections make sense, and the Rules node is present.',
-          }),
-        })
-        const result = await res.json()
-        chatRef.current?.addScreenshotMessage({ screenshot: dataUrl, assessment: result.assessment, passed: result.passed })
-      } catch {}
-    }, screenshotDelay)
-    revealTimersRef.current.push(screenshotT)
-  }, [activeTabId])
-
-  async function handleSignOut() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
+function SubTabs({ activeTab, onSelect }) {
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', flexDirection: 'column', background: '#050d1a' }}>
-      <style>{`
-        @keyframes drift { 0%{transform:translateY(0)} 50%{transform:translateY(-8px)} 100%{transform:translateY(0)} }
-        @keyframes shootingstar { 0%{transform:translateX(0) translateY(0);opacity:1} 100%{transform:translateX(200px) translateY(80px);opacity:0} }
-      `}</style>
+    <div style={{
+      height: 48, background: '#0a0e1a', borderBottom: '1px solid #1a2744',
+      display: 'flex', alignItems: 'center', padding: '0 24px', gap: 0,
+    }}>
+      <div style={{ display: 'flex', gap: 0, flex: 1 }}>
+        {TABS.map(tab => {
+          const active = activeTab === tab.id
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onSelect(tab.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '12px 20px', border: 'none', cursor: 'pointer',
+                background: 'transparent',
+                borderBottom: active ? '2px solid #3b82f6' : '2px solid transparent',
+                transition: 'all 0.15s',
+              }}
+            >
+              <Icon size={16} color={active ? '#3b82f6' : '#475569'} />
+              <span style={{
+                fontSize: 13, fontWeight: active ? 600 : 400,
+                color: active ? '#e2e8f0' : '#64748b',
+              }}>{tab.label}</span>
+            </button>
+          )
+        })}
+      </div>
 
-      {/* Top bar */}
-      <div style={{
-        height: 44, background: 'rgba(5,13,26,0.97)', borderBottom: '1px solid #0f172a',
-        display: 'flex', alignItems: 'center', padding: '0 16px', gap: 8, flexShrink: 0,
-        backdropFilter: 'blur(8px)',
-      }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#a78bfa', letterSpacing: '-0.3px', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 6, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', fontSize: 11, boxShadow: '0 2px 8px rgba(99,102,241,0.4)' }}>✦</span>
-          Svet&apos;s Dream
-        </span>
-        <span style={{ flex: 1 }} />
-        {/* Nav items — compact icon+label */}
-        {[
-          { href: '/forge', icon: '⚒', label: 'Forge', accent: '#f59e0b' },
-          { href: '/forge/my-apps', icon: '📱', label: 'My Apps', accent: '#6366f1' },
-          { href: '/billing', icon: '💳', label: 'Billing', accent: '#6366f1' },
-          { href: '/vm', icon: '🖥', label: 'VMs', accent: null },
-          { href: '/settings', icon: '⚙', label: 'Settings', accent: null },
-          { href: '/setup', icon: '🚀', label: 'Setup', accent: null },
-        ].map(({ href, icon, label, accent }) => (
-          <a key={href} href={href} style={{
-            fontSize: 11, color: accent || '#64748b', textDecoration: 'none',
-            padding: '4px 9px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 4,
-            border: `1px solid ${accent ? accent + '25' : '#1e293b'}`,
-            transition: 'color 0.15s, border-color 0.15s',
-          }}>{icon} {label}</a>
-        ))}
-        <div style={{ width: 1, height: 20, background: '#1e293b', margin: '0 4px' }} />
-        <button onClick={() => setShowWorkflows(v => !v)} style={{
-          fontSize: 11, color: showWorkflows ? '#a78bfa' : '#475569', background: 'transparent',
-          border: `1px solid ${showWorkflows ? 'rgba(167,139,250,0.3)' : '#1e293b'}`,
-          padding: '4px 9px', borderRadius: 6, cursor: 'pointer', transition: 'all 0.15s',
-        }}>⏰ Workflows</button>
-        <button onClick={() => setShowTasks(v => !v)} style={{
-          fontSize: 11, color: showTasks ? '#a78bfa' : '#475569', background: 'transparent',
-          border: `1px solid ${showTasks ? 'rgba(167,139,250,0.3)' : '#1e293b'}`,
-          padding: '4px 9px', borderRadius: 6, cursor: 'pointer', transition: 'all 0.15s',
-        }}>📋 Tasks</button>
-        <button onClick={() => setShowActivity(v => !v)} style={{
-          fontSize: 11, color: showActivity ? '#a78bfa' : '#475569', background: 'transparent',
-          border: `1px solid ${showActivity ? 'rgba(167,139,250,0.3)' : '#1e293b'}`,
-          padding: '4px 9px', borderRadius: 6, cursor: 'pointer', transition: 'all 0.15s',
-        }}>👁 Activity</button>
-        {user && <span style={{ fontSize: 10, color: '#334155', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</span>}
-        <button onClick={handleSignOut} style={{ fontSize: 11, color: '#64748b', background: 'transparent', border: '1px solid #1e293b', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', transition: 'color 0.15s' }}
-          onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-          onMouseLeave={e => e.currentTarget.style.color = '#64748b'}
-        >
-          Sign out
+      {/* Search + filter */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: '#151d2e', borderRadius: 8, padding: '6px 12px',
+          border: '1px solid #1a2744',
+        }}>
+          <IconSearch size={14} color="#475569" />
+          <input
+            placeholder="Search deployments..."
+            style={{
+              background: 'transparent', border: 'none', outline: 'none',
+              color: '#e2e8f0', fontSize: 12, width: 160,
+              fontFamily: 'inherit',
+            }}
+          />
+        </div>
+        <button style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          background: '#151d2e', borderRadius: 8, padding: '6px 10px',
+          border: '1px solid #1a2744', cursor: 'pointer', color: '#64748b', fontSize: 12,
+        }}>
+          <IconFilter size={14} /> Filter
         </button>
       </div>
+    </div>
+  )
+}
 
-      {/* Tab strip */}
-      <TabStrip
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelect={selectTab}
-        onAdd={addTab}
-        onRename={renameTab}
-        onClose={closeTab}
-      />
-
-      {/* Main layout — key on activeTabId so BuilderChat/OrgChart remount fresh per tab */}
-      <div key={activeTabId} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Left: Builder Chat */}
-        <BuilderChat ref={chatRef} onOrgUpdate={handleOrgUpdate} />
-
-        {/* Center: Org Chart */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 200, height: '100%' }}>
-          <div style={{ height: 36, borderBottom: '1px solid #0f172a', background: 'rgba(5,13,26,0.9)', display: 'flex', alignItems: 'center', padding: '0 16px', gap: 10 }}>
-            <span style={{ fontSize: 11, color: activeTab?.orgData?.nodes?.length ? '#64748b' : '#475569', fontWeight: 500 }}>
-              {activeTab?.orgData?.nodes?.length
-                ? `${activeTab.orgData.nodes.filter(n => n.id !== 'rules').length} agents assembled · click to chat`
-                : 'Agent org chart will appear here after you describe what to build'}
-            </span>
-            {activeTab?.orgData && (
-              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#a78bfa', background: '#a78bfa12', padding: '2px 9px', borderRadius: 20, fontWeight: 700, letterSpacing: '0.05em' }}>LIVE</span>
-            )}
+function ScreenshotGrid({ items }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+      gap: 16, padding: 24,
+    }}>
+      {items.map(item => (
+        <div key={item.id} style={{
+          background: '#151d2e', borderRadius: 12, border: '1px solid #1a2744',
+          overflow: 'hidden', transition: 'border-color 0.2s, box-shadow 0.2s',
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f640'; e.currentTarget.style.boxShadow = '0 0 20px rgba(59,130,246,0.1)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = '#1a2744'; e.currentTarget.style.boxShadow = 'none' }}
+        >
+          {/* Thumbnail placeholder */}
+          <div style={{
+            aspectRatio: '16/9', background: '#0f1629',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <IconCamera size={32} color="#1e3050" />
           </div>
-          <OrgChart ref={chartRef} orgData={activeTab?.orgData} onNodeClick={setSelectedAgent} introNodeIds={introNodeIds} agentChats={agentChats} activeAgents={activeAgents} />
+          {/* Meta */}
+          <div style={{ padding: '12px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                background: `${item.moduleColor}20`, color: item.moduleColor,
+              }}>{item.moduleLabel}</span>
+              <code style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>{item.commit}</code>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <IconClock size={12} /> {fmtTime(item.timestamp)}
+              </span>
+              <button style={{
+                fontSize: 11, color: '#ef4444', background: 'transparent', border: '1px solid #ef444440',
+                borderRadius: 6, padding: '3px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                transition: 'all 0.15s',
+              }}>
+                <IconArrowBackUp size={12} /> Revert
+              </button>
+            </div>
+          </div>
         </div>
+      ))}
+    </div>
+  )
+}
 
-        {/* Build Preview — always visible */}
-        <BuilderPreview visible={true} workspaceId={currentWorkspaceId} />
+function VideoGrid({ items }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+      gap: 16, padding: 24,
+    }}>
+      {items.map(item => (
+        <div key={item.id} style={{
+          background: '#151d2e', borderRadius: 12, border: '1px solid #1a2744',
+          overflow: 'hidden', transition: 'border-color 0.2s',
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#8b5cf640' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = '#1a2744' }}
+        >
+          <div style={{
+            aspectRatio: '16/9', background: '#0f1629',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+          }}>
+            <IconVideo size={32} color="#1e3050" />
+            <span style={{
+              position: 'absolute', bottom: 8, right: 8, fontSize: 11, color: '#e2e8f0',
+              background: '#000000aa', borderRadius: 4, padding: '2px 6px', fontFamily: 'monospace',
+            }}>{fmtDuration(item.duration)}</span>
+          </div>
+          <div style={{ padding: '12px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                background: `${item.moduleColor}20`, color: item.moduleColor,
+              }}>{item.moduleLabel}</span>
+              <code style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>{item.commit}</code>
+            </div>
+            <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <IconClock size={12} /> {fmtTime(item.timestamp)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
-        {/* Right: Workflows Panel — toggleable */}
-        {showWorkflows && <WorkflowsPanel />}
+function ChangeLog({ items }) {
+  return (
+    <div style={{ padding: 24, maxWidth: 900 }}>
+      {items.map((item, i) => (
+        <div key={item.id} style={{
+          display: 'flex', gap: 16, padding: '16px 0',
+          borderBottom: i < items.length - 1 ? '1px solid #1a2744' : 'none',
+        }}>
+          {/* Timeline dot */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 20, flexShrink: 0, paddingTop: 4 }}>
+            <div style={{
+              width: 10, height: 10, borderRadius: '50%',
+              background: typeBadge[item.type]?.color || '#475569',
+              boxShadow: `0 0 8px ${typeBadge[item.type]?.color || '#475569'}40`,
+            }} />
+            {i < items.length - 1 && <div style={{ width: 1, flex: 1, background: '#1a2744', marginTop: 4 }} />}
+          </div>
 
-        {/* Right: Tasks Panel — toggleable */}
-        {showTasks && <TasksPanel workspaceId={currentWorkspaceId} />}
+          {/* Content */}
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{
+                fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                background: `${item.moduleColor}20`, color: item.moduleColor,
+              }}>{item.moduleLabel}</span>
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                background: typeBadge[item.type]?.bg, color: typeBadge[item.type]?.color,
+                textTransform: 'uppercase', letterSpacing: '0.05em',
+              }}>{typeBadge[item.type]?.label}</span>
+              <code style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 3 }}>
+                <IconBrandGithub size={11} /> {item.commit}
+              </code>
+            </div>
+            <p style={{ fontSize: 13, color: '#e2e8f0', margin: 0, lineHeight: 1.5 }}>{item.message}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+              <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <IconClock size={12} /> {fmtTime(item.timestamp)}
+              </span>
+              {item.canRevert && (
+                <button style={{
+                  fontSize: 11, color: '#ef4444', background: 'transparent', border: '1px solid #ef444440',
+                  borderRadius: 6, padding: '3px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                }}>
+                  <IconArrowBackUp size={12} /> Revert
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
-        {/* Right: Activity Feed — toggleable */}
-        {showActivity && <ActivityFeed />}
+function LiveView() {
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{
+        background: '#151d2e', borderRadius: 12, border: '1px solid #1a2744',
+        padding: 24, textAlign: 'center', minHeight: 400,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16,
+      }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: 16,
+          background: 'linear-gradient(135deg, #3b82f620, #8b5cf620)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: '1px solid #3b82f640',
+        }}>
+          <IconEye size={28} color="#3b82f6" />
+        </div>
+        <h3 style={{ fontSize: 16, color: '#e2e8f0', margin: 0 }}>Live VM Viewer</h3>
+        <p style={{ fontSize: 13, color: '#64748b', maxWidth: 400, lineHeight: 1.6 }}>
+          Watch Claude&apos;s browser activity in real-time. Select a VM session below to start streaming.
+        </p>
+
+        {/* VM session cards */}
+        <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {[
+            { id: 'claude-monitor', status: 'active', device: '1280×800' },
+            { id: 'claude-mobile', status: 'idle', device: '390×844 (iOS)' },
+          ].map(vm => (
+            <div key={vm.id} style={{
+              background: '#0f1629', borderRadius: 10, border: '1px solid #1a2744',
+              padding: '14px 20px', minWidth: 200, textAlign: 'left',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: vm.status === 'active' ? '#22c55e' : '#f59e0b',
+                  boxShadow: vm.status === 'active' ? '0 0 8px #22c55e80' : 'none',
+                }} />
+                <code style={{ fontSize: 12, color: '#e2e8f0', fontFamily: 'monospace' }}>{vm.id}</code>
+              </div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>Viewport: {vm.device}</div>
+              <button style={{
+                marginTop: 8, fontSize: 11, color: '#3b82f6', background: '#3b82f615',
+                border: '1px solid #3b82f630', borderRadius: 6, padding: '4px 12px',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+                <IconEye size={12} /> Watch Live
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {selectedAgent && (
-        <AgentModal
-          agent={selectedAgent}
-          orgData={activeTab?.orgData}
-          rulesDescription={rulesDescription}
-          initialMessage={agentKickoff}
-          onClose={() => { setSelectedAgent(null); setAgentKickoff(null) }}
-        />
-      )}
+      {/* VM Infrastructure */}
+      <h3 style={{ fontSize: 14, color: '#e2e8f0', margin: '24px 0 12px', fontWeight: 600 }}>Infrastructure</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+        {[
+          { name: 'mailcow-stproperties', ip: '178.156.202.118', loc: 'Ashburn, VA', spec: 'CPX41 — 8 vCPU / 16GB', status: 'running', containers: 24 },
+          { name: 'test-runner-1', ip: '178.104.54.231', loc: 'Nuremberg, DE', spec: 'CAX11 — 2 vCPU ARM / 4GB', status: 'running', containers: 1 },
+        ].map(vm => (
+          <div key={vm.name} style={{
+            background: '#151d2e', borderRadius: 10, border: '1px solid #1a2744', padding: '16px 18px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
+                boxShadow: '0 0 8px #22c55e80',
+              }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{vm.name}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 11 }}>
+              <span style={{ color: '#64748b' }}>IP</span>
+              <code style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{vm.ip}</code>
+              <span style={{ color: '#64748b' }}>Location</span>
+              <span style={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}><IconMapPin size={11} /> {vm.loc}</span>
+              <span style={{ color: '#64748b' }}>Spec</span>
+              <span style={{ color: '#94a3b8' }}>{vm.spec}</span>
+              <span style={{ color: '#64748b' }}>Containers</span>
+              <span style={{ color: '#94a3b8' }}>{vm.containers} running</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StatusBar() {
+  return (
+    <div style={{
+      height: 32, flexShrink: 0, background: '#0a0e1a', borderTop: '1px solid #1a2744',
+      display: 'flex', alignItems: 'center', padding: '0 20px', gap: 20,
+      fontSize: 11, color: '#475569',
+    }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <IconServer size={12} /> 2 VMs Active
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <IconMapPin size={12} /> Hetzner: Ashburn, VA
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <IconRefresh size={12} /> Last deploy: 2 min ago
+      </span>
+      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 6px #22c55e80' }} />
+        All systems operational
+      </span>
+    </div>
+  )
+}
+
+/* ── Main Dashboard ───────────────────────────────── */
+export default function Dashboard() {
+  const [activeModule, setActiveModule] = useState('all')
+  const [activeTab, setActiveTab] = useState('screenshots')
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    setData(generateDemoData())
+  }, [])
+
+  if (!data) return null
+
+  // Filter by module
+  const filter = useCallback((items) => {
+    if (activeModule === 'all' || activeModule === 'vms') return items
+    return items.filter(i => i.module === activeModule)
+  }, [activeModule])
+
+  // If user clicks "VMs & Servers", force Live View tab
+  useEffect(() => {
+    if (activeModule === 'vms') setActiveTab('liveview')
+  }, [activeModule])
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#0a0e1a' }}>
+      <Sidebar activeModule={activeModule} onSelect={setActiveModule} />
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <SubTabs activeTab={activeTab} onSelect={setActiveTab} />
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {activeTab === 'screenshots' && <ScreenshotGrid items={filter(data.screenshots)} />}
+          {activeTab === 'videos' && <VideoGrid items={filter(data.videos)} />}
+          {activeTab === 'changelog' && <ChangeLog items={filter(data.changes)} />}
+          {activeTab === 'liveview' && <LiveView />}
+        </div>
+
+        <StatusBar />
+      </div>
     </div>
   )
 }

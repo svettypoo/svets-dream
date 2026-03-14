@@ -1,8 +1,8 @@
 import './globals.css'
 
 export const metadata = {
-  title: "Svet's Dream",
-  description: 'AI Agent Corporate Structure Manager',
+  title: "Dream — S&T DevOps",
+  description: 'Deployment monitoring, screenshots, videos, and change logs for S&T Properties',
   icons: {
     icon: '/favicon.svg',
   },
