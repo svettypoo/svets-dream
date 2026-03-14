@@ -5,6 +5,7 @@ import {
   IconSearch, IconArrowBackUp, IconClock, IconCheck, IconAlertTriangle,
   IconBrandGithub, IconChevronDown, IconMoon, IconStar, IconFilter,
   IconRefresh, IconMapPin, IconCpu, IconCloud, IconActivity,
+  IconExternalLink,
 } from '@tabler/icons-react'
 
 /* ── Module definitions ───────────────────────────── */
@@ -18,6 +19,7 @@ const MODULES = [
   { id: 'atlas', label: 'Atlas', color: '#ef4444', icon: IconCpu },
   { id: 'matchfit', label: 'MatchFit', color: '#ec4899', icon: IconActivity },
   { id: 'frontdesk', label: 'Front Desk', color: '#6366f1', icon: IconServer },
+  { id: 'dream', label: 'Dream', color: '#3b82f6', icon: IconMoon },
 ]
 
 const TABS = [
@@ -62,6 +64,7 @@ function guessModule(item) {
   if (all.includes('atlas')) return 'atlas'
   if (all.includes('matchfit')) return 'matchfit'
   if (all.includes('frontdesk') || all.includes('front-desk')) return 'frontdesk'
+  if (all.includes('dream')) return 'dream'
   return 'all'
 }
 
@@ -73,6 +76,22 @@ async function fetchMedia(type, limit = 50) {
   } catch (e) { console.error('fetch media error:', e) }
   return []
 }
+
+async function fetchChangelog(module = '') {
+  try {
+    const qs = module ? `?module=${module}&limit=20` : '?limit=20'
+    const res = await fetch(`/api/changelog${qs}`)
+    const data = await res.json()
+    if (data.ok && data.items) return data.items
+  } catch (e) { console.error('fetch changelog error:', e) }
+  return []
+}
+
+/* ── Project filter pills (shown under Screenshots/Videos) ── */
+const PROJECT_FILTERS = [
+  { id: 'all', label: 'All Projects' },
+  ...MODULES.filter(m => m.id !== 'all').map(m => ({ id: m.id, label: m.label, color: m.color })),
+]
 
 /* ── Helpers ──────────────────────────────────────── */
 function fmtTime(ts) {
@@ -235,6 +254,34 @@ function SubTabs({ activeTab, onSelect }) {
   )
 }
 
+function ProjectFilterBar({ activeProject, onSelect }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6, padding: '12px 24px 0',
+      flexWrap: 'wrap',
+    }}>
+      <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, marginRight: 4 }}>Project:</span>
+      {PROJECT_FILTERS.map(p => {
+        const active = activeProject === p.id
+        return (
+          <button
+            key={p.id}
+            onClick={() => onSelect(p.id)}
+            style={{
+              fontSize: 11, fontWeight: active ? 600 : 400,
+              padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+              border: active ? `1px solid ${p.color || '#3b82f6'}` : '1px solid #1a2744',
+              background: active ? `${p.color || '#3b82f6'}18` : '#151d2e',
+              color: active ? (p.color || '#3b82f6') : '#64748b',
+              transition: 'all 0.15s',
+            }}
+          >{p.label}</button>
+        )
+      })}
+    </div>
+  )
+}
+
 function ScreenshotGrid({ items }) {
   return (
     <div style={{
@@ -345,7 +392,13 @@ function VideoGrid({ items }) {
   )
 }
 
-function ChangeLog({ items }) {
+function ChangeLog({ items, loading }) {
+  if (loading) return (
+    <div style={{ padding: 24, color: '#475569', fontSize: 13 }}>Loading commits...</div>
+  )
+  if (!items.length) return (
+    <div style={{ padding: 24, color: '#475569', fontSize: 13 }}>No commits found.</div>
+  )
   return (
     <div style={{ padding: 24, maxWidth: 900 }}>
       {items.map((item, i) => (
@@ -372,26 +425,34 @@ function ChangeLog({ items }) {
               }}>{item.moduleLabel}</span>
               <span style={{
                 fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                background: typeBadge[item.type]?.bg, color: typeBadge[item.type]?.color,
+                background: typeBadge[item.type]?.bg || '#47556920', color: typeBadge[item.type]?.color || '#475569',
                 textTransform: 'uppercase', letterSpacing: '0.05em',
-              }}>{typeBadge[item.type]?.label}</span>
-              <code style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 3 }}>
-                <IconBrandGithub size={11} /> {item.commit}
-              </code>
+              }}>{typeBadge[item.type]?.label || 'Change'}</span>
+              {item.url ? (
+                <a href={item.url} target="_blank" rel="noopener noreferrer" style={{
+                  fontSize: 11, color: '#475569', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 3,
+                  textDecoration: 'none', transition: 'color 0.15s',
+                }}
+                  onMouseEnter={e => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={e => e.currentTarget.style.color = '#475569'}
+                >
+                  <IconBrandGithub size={11} /> {item.commit}
+                  <IconExternalLink size={10} />
+                </a>
+              ) : (
+                <code style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <IconBrandGithub size={11} /> {item.commit}
+                </code>
+              )}
             </div>
             <p style={{ fontSize: 13, color: '#e2e8f0', margin: 0, lineHeight: 1.5 }}>{item.message}</p>
+            {item.author && (
+              <span style={{ fontSize: 11, color: '#334155', marginTop: 2, display: 'block' }}>by {item.author}</span>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
               <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <IconClock size={12} /> {fmtTime(item.timestamp)}
               </span>
-              {item.canRevert && (
-                <button style={{
-                  fontSize: 11, color: '#ef4444', background: 'transparent', border: '1px solid #ef444440',
-                  borderRadius: 6, padding: '3px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                }}>
-                  <IconArrowBackUp size={12} /> Revert
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -514,19 +575,29 @@ function StatusBar() {
 export default function Dashboard() {
   const [activeModule, setActiveModule] = useState('all')
   const [activeTab, setActiveTab] = useState('screenshots')
+  const [projectFilter, setProjectFilter] = useState('all')
   const [data, setData] = useState(null)
+  const [changelog, setChangelog] = useState([])
+  const [changelogLoading, setChangelogLoading] = useState(false)
 
-  // Filter by module
+  // Filter by sidebar module AND project filter pills
   const filter = useCallback((items) => {
-    if (activeModule === 'all' || activeModule === 'vms') return items
-    return items.filter(i => i.module === activeModule)
-  }, [activeModule])
+    let filtered = items
+    if (activeModule !== 'all' && activeModule !== 'vms') {
+      filtered = filtered.filter(i => i.module === activeModule)
+    }
+    if (projectFilter !== 'all') {
+      filtered = filtered.filter(i => i.module === projectFilter)
+    }
+    return filtered
+  }, [activeModule, projectFilter])
 
   // If user clicks "VMs & Servers", force Live View tab
   useEffect(() => {
     if (activeModule === 'vms') setActiveTab('liveview')
   }, [activeModule])
 
+  // Fetch media on mount
   useEffect(() => {
     async function load() {
       const [screenshots, videos] = await Promise.all([
@@ -537,6 +608,17 @@ export default function Dashboard() {
     }
     load()
   }, [])
+
+  // Fetch changelog when tab switches to changelog or module changes
+  useEffect(() => {
+    if (activeTab !== 'changelog') return
+    setChangelogLoading(true)
+    const mod = activeModule !== 'all' && activeModule !== 'vms' ? activeModule : ''
+    fetchChangelog(mod).then(items => {
+      setChangelog(items)
+      setChangelogLoading(false)
+    })
+  }, [activeTab, activeModule])
 
   if (!data) return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: '#0a0e1a', color: '#475569' }}>
@@ -551,15 +633,16 @@ export default function Dashboard() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <SubTabs activeTab={activeTab} onSelect={setActiveTab} />
 
+        {/* Project filter bar — shown under Screenshots & Videos */}
+        {(activeTab === 'screenshots' || activeTab === 'videos') && (
+          <ProjectFilterBar activeProject={projectFilter} onSelect={setProjectFilter} />
+        )}
+
         {/* Content */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {activeTab === 'screenshots' && <ScreenshotGrid items={filter(data.screenshots)} />}
           {activeTab === 'videos' && <VideoGrid items={filter(data.videos)} />}
-          {activeTab === 'changelog' && (
-            <div style={{ padding: 24, color: '#475569', fontSize: 13 }}>
-              Change log will be wired to git commit history. Coming soon.
-            </div>
-          )}
+          {activeTab === 'changelog' && <ChangeLog items={changelog} loading={changelogLoading} />}
           {activeTab === 'liveview' && <LiveView />}
         </div>
 
