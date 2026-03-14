@@ -2773,6 +2773,6 @@ try {
   console.log('[exec-server] Legacy WAV generation failed:', e.message)
 }
 
-server.listen(PORT, () => {
-  console.log(`[exec-server] listening on :${PORT}`)
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[exec-server] listening on 0.0.0.0:${PORT}`)
 })
