@@ -376,7 +376,7 @@ async function getSession(sessionId, opts = {}) {
 
   const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
     '--autoplay-policy=no-user-gesture-required', // allow audio autoplay
-    '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies',
+    '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies,AudioServiceSandbox,AudioServiceOutOfProcess',
     '--disable-gpu', '--disable-extensions', '--disable-background-networking',
     '--disable-sync', '--disable-translate', '--metrics-recording-only',
     '--no-first-run',
@@ -386,6 +386,9 @@ async function getSession(sessionId, opts = {}) {
   // Only mute audio when NOT using fake audio (mute-audio interferes with WebRTC)
   if (!opts.fakeAudio) {
     args.push('--mute-audio')
+  } else {
+    // Force Chromium to use PulseAudio for audio output (needed for audio capture)
+    args.push('--enable-features=PulseaudioLoopbackForScreenShare')
   }
 
   // Fake media input — feeds WAV + Y4M files as mic/camera source for WebRTC
