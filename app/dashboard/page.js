@@ -517,12 +517,6 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('screenshots')
   const [data, setData] = useState(null)
 
-  useEffect(() => {
-    setData(generateDemoData())
-  }, [])
-
-  if (!data) return null
-
   // Filter by module
   const filter = useCallback((items) => {
     if (activeModule === 'all' || activeModule === 'vms') return items
@@ -533,6 +527,12 @@ export default function Dashboard() {
   useEffect(() => {
     if (activeModule === 'vms') setActiveTab('liveview')
   }, [activeModule])
+
+  useEffect(() => {
+    setData(generateDemoData())
+  }, [])
+
+  if (!data) return null
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#0a0e1a' }}>
