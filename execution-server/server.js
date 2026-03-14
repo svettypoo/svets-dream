@@ -179,7 +179,7 @@ async function getMobileSession(sessionId, opts = {}) {
 
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   })
   const context = await browser.newContext({ viewport: { width: 500, height: 900 } })
   const page = await context.newPage()
@@ -456,10 +456,11 @@ async function getSession(sessionId, opts = {}) {
   const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
     '--autoplay-policy=no-user-gesture-required', // allow audio autoplay
     '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies,AudioServiceSandbox,AudioServiceOutOfProcess',
-    '--disable-gpu', '--disable-extensions', '--disable-background-networking',
+    '--enable-gpu', '--use-gl=angle', '--use-angle=swiftshader-webgl',
+    '--disable-extensions', '--disable-background-networking',
     '--disable-sync', '--disable-translate', '--metrics-recording-only',
     '--no-first-run',
-    `--js-flags=--max-old-space-size=${process.env.CHROME_HEAP_MB || '256'}`,
+    `--js-flags=--max-old-space-size=${process.env.CHROME_HEAP_MB || '512'}`,
   ]
 
   // Only mute audio when NOT using fake audio (mute-audio interferes with WebRTC)
