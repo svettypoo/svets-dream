@@ -369,13 +369,7 @@ function ScreenshotGrid({ items }) {
               <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <IconClock size={12} /> {fmtTime(item.timestamp)}
               </span>
-              <button style={{
-                fontSize: 11, color: '#ef4444', background: 'transparent', border: '1px solid #ef444440',
-                borderRadius: 6, padding: '3px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                transition: 'all 0.15s',
-              }}>
-                <IconArrowBackUp size={12} /> Revert
-              </button>
+              <RevertButton itemId={item.id} />
             </div>
           </div>
         </div>
