@@ -379,21 +379,39 @@ async function getSession(sessionId, opts = {}) {
     '--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies',
     '--disable-gpu', '--disable-extensions', '--disable-background-networking',
     '--disable-sync', '--disable-translate', '--metrics-recording-only',
-    '--no-first-run', '--mute-audio',
+    '--no-first-run',
     `--js-flags=--max-old-space-size=${process.env.CHROME_HEAP_MB || '256'}`,
   ]
 
-  // Fake microphone input — feeds a WAV file as the mic source
+  // Only mute audio when NOT using fake audio (mute-audio interferes with WebRTC)
+  if (!opts.fakeAudio) {
+    args.push('--mute-audio')
+  }
+
+  // Fake media input — feeds WAV + Y4M files as mic/camera source for WebRTC
   if (opts.fakeAudio) {
+    const audioFile = fs.existsSync('/app/fake-conversation.wav')
+      ? '/app/fake-conversation.wav'
+      : '/app/test-audio.wav'
     args.push(
       '--use-fake-device-for-media-stream',
       '--use-fake-ui-for-media-stream',
-      '--use-file-for-fake-audio-capture=/app/test-audio.wav',
+      `--use-file-for-fake-audio-capture=${audioFile}`,
       '--allow-file-access-from-files',
     )
+    // Add fake video capture if Y4M file exists
+    if (fs.existsSync('/app/fake-video.y4m')) {
+      args.push('--use-file-for-fake-video-capture=/app/fake-video.y4m')
+    }
   }
 
-  const browser = await chromium.launch({ headless: true, args })
+  // For fakeAudio sessions: use non-headless mode with Xvfb for proper WebRTC media negotiation
+  // Normal sessions stay headless for performance
+  const useXvfb = opts.fakeAudio && process.env.DISPLAY
+  if (useXvfb) {
+    args.push(`--display=${process.env.DISPLAY}`)
+  }
+  const browser = await chromium.launch({ headless: !useXvfb, args })
   const permissions = opts.fakeAudio ? ['microphone', 'camera'] : []
   // Video recording dir
   const recordVideoOpts = opts.recordVideo ? {
@@ -682,6 +700,76 @@ async function handleBrowser(action, sessionId, params) {
         return { ok: true, ...uploadResult }
       } catch (e) {
         return { ok: false, error: 'Failed to save recording: ' + e.message }
+      }
+    }
+
+    // ── Check audio — verify WebRTC audio streams are flowing ────────────────
+    if (action === 'check_audio') {
+      const audioInfo = await page.evaluate(() => {
+        const result = {
+          peerConnections: 0,
+          audioTracks: { local: 0, remote: 0 },
+          videoTracks: { local: 0, remote: 0 },
+          connectionStates: [],
+          iceStates: [],
+          mediaStreams: 0,
+          getUserMediaActive: false,
+          details: [],
+        }
+
+        // Check all RTCPeerConnections via WebRTC internals
+        // Note: We can only detect streams attached to media elements or getUserMedia
+        const mediaElements = document.querySelectorAll('audio, video')
+        for (const el of mediaElements) {
+          if (el.srcObject && el.srcObject instanceof MediaStream) {
+            result.mediaStreams++
+            const audioTracks = el.srcObject.getAudioTracks()
+            const videoTracks = el.srcObject.getVideoTracks()
+            result.details.push({
+              element: el.tagName.toLowerCase(),
+              id: el.id || '(no id)',
+              audioTracks: audioTracks.map(t => ({ label: t.label, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+              videoTracks: videoTracks.map(t => ({ label: t.label, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+            })
+          }
+        }
+
+        // Check if getUserMedia was used (navigator.mediaDevices)
+        if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+          result.getUserMediaActive = true
+        }
+
+        // Try to get RTCPeerConnection stats if any global references exist
+        if (typeof window.__rtcPeerConnections !== 'undefined' && Array.isArray(window.__rtcPeerConnections)) {
+          for (const pc of window.__rtcPeerConnections) {
+            result.peerConnections++
+            result.connectionStates.push(pc.connectionState || 'unknown')
+            result.iceStates.push(pc.iceConnectionState || 'unknown')
+            for (const sender of (pc.getSenders ? pc.getSenders() : [])) {
+              if (sender.track) {
+                if (sender.track.kind === 'audio') result.audioTracks.local++
+                if (sender.track.kind === 'video') result.videoTracks.local++
+              }
+            }
+            for (const receiver of (pc.getReceivers ? pc.getReceivers() : [])) {
+              if (receiver.track) {
+                if (receiver.track.kind === 'audio') result.audioTracks.remote++
+                if (receiver.track.kind === 'video') result.videoTracks.remote++
+              }
+            }
+          }
+        }
+
+        return result
+      })
+
+      return {
+        ok: true,
+        fakeAudio: !!(session.opts && session.opts.fakeAudio),
+        xvfb: !!process.env.DISPLAY,
+        audioFile: fs.existsSync('/app/fake-conversation.wav') ? '/app/fake-conversation.wav' : '/app/test-audio.wav',
+        videoFile: fs.existsSync('/app/fake-video.y4m') ? '/app/fake-video.y4m' : null,
+        ...audioInfo,
       }
     }
 
@@ -2518,14 +2606,156 @@ try {
   console.log('[exec-server] PulseAudio not available (install pulseaudio for audio capture):', e.message)
 }
 
-// ── Generate test WAV (1s 440Hz sine — used as fake mic input) ────────────────
+// ── Start Xvfb virtual display (needed for WebRTC in non-headless mode) ──────
+try {
+  execSync('Xvfb :99 -screen 0 1280x1024x24 -ac &', { stdio: 'pipe' })
+  process.env.DISPLAY = ':99'
+  console.log('[exec-server] Xvfb virtual display started on :99')
+} catch (e) {
+  console.log('[exec-server] Xvfb not available (WebRTC sessions will use headless mode):', e.message)
+}
+
+// ── Generate fake conversation audio (used as fake mic input for WebRTC) ─────
+try {
+  const CONVERSATION_WAV = '/app/fake-conversation.wav'
+  if (!fs.existsSync(CONVERSATION_WAV)) {
+    // Conversation lines — alternating female (f5) and male (m3) espeak-ng voices
+    const lines = [
+      { voice: 'en+f5', text: 'Good morning, this is Sarah from S and T Properties. How can I help you today?' },
+      { voice: 'en+m3', text: 'Hi Sarah, I am calling about the maintenance request for room four twelve.' },
+      { voice: 'en+f5', text: 'Of course, let me pull that up right away. Can I get your name please?' },
+      { voice: 'en+m3', text: 'Its John Patterson. I submitted the request yesterday afternoon.' },
+      { voice: 'en+f5', text: 'Yes, I can see that here. The plumbing issue in the bathroom, is that correct?' },
+      { voice: 'en+m3', text: 'Yes thats right. The faucet has been leaking since Monday and its getting worse.' },
+      { voice: 'en+f5', text: 'I understand. Let me schedule a technician for you. Would tomorrow morning work?' },
+      { voice: 'en+m3', text: 'Tomorrow morning would be perfect. What time should I expect them?' },
+      { voice: 'en+f5', text: 'I can have someone there between nine and eleven. Will you be in the room?' },
+      { voice: 'en+m3', text: 'Yes I will be here. Could you also send a confirmation email to my address on file?' },
+      { voice: 'en+f5', text: 'Absolutely, I will send that right over. Is there anything else I can help you with?' },
+      { voice: 'en+m3', text: 'No thats everything. Thank you so much Sarah, I really appreciate the quick response.' },
+      { voice: 'en+f5', text: 'You are welcome John. Have a wonderful day and we will see you tomorrow morning.' },
+    ]
+
+    let hasEspeak = false
+    try { execSync('which espeak-ng', { stdio: 'pipe' }); hasEspeak = true } catch {}
+
+    if (hasEspeak) {
+      console.log('[exec-server] Generating conversation audio with espeak-ng...')
+      const tmpDir = '/tmp/conversation-parts'
+      execSync(`mkdir -p ${tmpDir}`, { stdio: 'pipe' })
+
+      // Generate each line as a separate WAV
+      const partFiles = []
+      for (let i = 0; i < lines.length; i++) {
+        const outFile = `${tmpDir}/part-${String(i).padStart(2, '0')}.wav`
+        const silenceFile = `${tmpDir}/silence-${String(i).padStart(2, '0')}.wav`
+        // Generate speech
+        execSync(`espeak-ng -v ${lines[i].voice} -s 150 -w ${outFile} "${lines[i].text.replace(/"/g, '\\"')}"`, { stdio: 'pipe' })
+        // Generate 0.5s silence gap between lines
+        execSync(`ffmpeg -y -f lavfi -i anullsrc=r=48000:cl=mono -t 0.5 ${silenceFile} 2>/dev/null`, { stdio: 'pipe' })
+        partFiles.push(outFile, silenceFile)
+      }
+
+      // Build ffmpeg concat file
+      const concatList = partFiles.map(f => `file '${f}'`).join('\n')
+      fs.writeFileSync(`${tmpDir}/concat.txt`, concatList)
+
+      // Concatenate all parts into one WAV at 48kHz mono 16-bit
+      execSync(`ffmpeg -y -f concat -safe 0 -i ${tmpDir}/concat.txt -ar 48000 -ac 1 -sample_fmt s16 ${CONVERSATION_WAV} 2>/dev/null`, { stdio: 'pipe' })
+
+      // Cleanup temp files
+      execSync(`rm -rf ${tmpDir}`, { stdio: 'pipe' })
+      console.log('[exec-server] Conversation audio generated at', CONVERSATION_WAV)
+    } else {
+      // Fallback: generate speech-like noise bursts with pauses (two pitch ranges)
+      console.log('[exec-server] espeak-ng not available, generating synthetic speech-like audio...')
+      const sampleRate = 48000
+      const duration = 60
+      const numSamples = sampleRate * duration
+      const buf = Buffer.alloc(44 + numSamples * 2)
+      // WAV header
+      buf.write('RIFF', 0); buf.writeUInt32LE(36 + numSamples * 2, 4); buf.write('WAVE', 8)
+      buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20)
+      buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sampleRate, 24); buf.writeUInt32LE(sampleRate * 2, 28)
+      buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34)
+      buf.write('data', 36); buf.writeUInt32LE(numSamples * 2, 40)
+
+      // Simulate two speakers with different pitch ranges and speech-like amplitude modulation
+      let speaker = 0 // 0 = female (higher pitch), 1 = male (lower pitch)
+      let segmentStart = 0
+      const segments = [] // { start, end, speaker, silence }
+      let t = 0
+      while (t < duration) {
+        const speakDuration = 2 + Math.random() * 4 // 2-6s speech
+        const silenceDuration = 0.3 + Math.random() * 0.7 // 0.3-1s pause
+        segments.push({ start: t, end: Math.min(t + speakDuration, duration), speaker, silence: false })
+        t += speakDuration
+        segments.push({ start: t, end: Math.min(t + silenceDuration, duration), speaker, silence: true })
+        t += silenceDuration
+        speaker = 1 - speaker
+      }
+
+      for (let i = 0; i < numSamples; i++) {
+        const time = i / sampleRate
+        let sample = 0
+        for (const seg of segments) {
+          if (time >= seg.start && time < seg.end) {
+            if (seg.silence) { sample = 0; break }
+            const baseFreq = seg.speaker === 0 ? 220 : 130 // female vs male fundamental
+            // Speech-like: fundamental + harmonics with amplitude modulation
+            const ampMod = 0.5 + 0.5 * Math.sin(2 * Math.PI * 4 * time) // 4Hz syllable rate
+            const noise = (Math.random() - 0.5) * 0.15 // fricative noise
+            sample = ampMod * (
+              0.4 * Math.sin(2 * Math.PI * baseFreq * time) +
+              0.2 * Math.sin(2 * Math.PI * baseFreq * 2 * time) +
+              0.1 * Math.sin(2 * Math.PI * baseFreq * 3 * time) +
+              0.05 * Math.sin(2 * Math.PI * baseFreq * 5 * time)
+            ) + noise
+            sample *= 0.7 // overall volume
+            break
+          }
+        }
+        buf.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(sample * 32767))), 44 + i * 2)
+      }
+      fs.writeFileSync(CONVERSATION_WAV, buf)
+      console.log('[exec-server] Synthetic conversation audio generated at', CONVERSATION_WAV)
+    }
+  }
+} catch (e) {
+  console.log('[exec-server] Conversation audio generation failed:', e.message)
+}
+
+// ── Generate fake video Y4M (used as fake camera input for WebRTC) ───────────
+try {
+  const FAKE_VIDEO = '/app/fake-video.y4m'
+  if (!fs.existsSync(FAKE_VIDEO)) {
+    let hasFFmpeg = false
+    try { execSync('which ffmpeg', { stdio: 'pipe' }); hasFFmpeg = true } catch {}
+
+    if (hasFFmpeg) {
+      console.log('[exec-server] Generating fake video Y4M with ffmpeg...')
+      execSync(
+        `ffmpeg -y -f lavfi -i "testsrc2=size=640x480:rate=15:duration=30" ` +
+        `-vf "drawtext=text='S%26T Properties - Test Call':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=h-50:box=1:boxcolor=black@0.6:boxborderw=5" ` +
+        `-pix_fmt yuv420p ${FAKE_VIDEO} 2>/dev/null`,
+        { stdio: 'pipe', timeout: 30000 }
+      )
+      console.log('[exec-server] Fake video generated at', FAKE_VIDEO)
+    } else {
+      console.log('[exec-server] ffmpeg not available, skipping fake video generation')
+    }
+  }
+} catch (e) {
+  console.log('[exec-server] Fake video generation failed:', e.message)
+}
+
+// ── Keep legacy test-audio.wav for backward compat ───────────────────────────
 try {
   const WAV_PATH = '/app/test-audio.wav'
   if (!fs.existsSync(WAV_PATH)) {
     const sampleRate = 44100, freq = 440, duration = 2
     const numSamples = sampleRate * duration
     const buf = Buffer.alloc(44 + numSamples * 2)
-    // WAV header
     buf.write('RIFF', 0); buf.writeUInt32LE(36 + numSamples * 2, 4); buf.write('WAVE', 8)
     buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20)
     buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sampleRate, 24); buf.writeUInt32LE(sampleRate * 2, 28)
@@ -2537,10 +2767,10 @@ try {
     }
     fs.mkdirSync(path.dirname(WAV_PATH), { recursive: true })
     fs.writeFileSync(WAV_PATH, buf)
-    console.log('[exec-server] Test audio WAV generated at', WAV_PATH)
+    console.log('[exec-server] Legacy test audio WAV generated at', WAV_PATH)
   }
 } catch (e) {
-  console.log('[exec-server] WAV generation failed:', e.message)
+  console.log('[exec-server] Legacy WAV generation failed:', e.message)
 }
 
 server.listen(PORT, () => {

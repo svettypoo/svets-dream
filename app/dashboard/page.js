@@ -254,6 +254,47 @@ function SubTabs({ activeTab, onSelect }) {
   )
 }
 
+function RevertButton({ itemId }) {
+  const [stage, setStage] = useState(0) // 0=idle, 1=first warning, 2=second warning
+
+  useEffect(() => {
+    if (stage === 0) return
+    const timer = setTimeout(() => setStage(0), 5000) // auto-reset after 5s
+    return () => clearTimeout(timer)
+  }, [stage])
+
+  const labels = [
+    { text: 'Revert', bg: 'transparent', border: '#ef444440', color: '#ef4444' },
+    { text: 'Are you sure?', bg: '#ef444415', border: '#ef444460', color: '#ef4444' },
+    { text: 'Cannot be undone!', bg: '#ef444430', border: '#ef4444', color: '#fff' },
+  ]
+  const cur = labels[stage]
+
+  const handleClick = () => {
+    if (stage < 2) {
+      setStage(stage + 1)
+    } else {
+      // TODO: wire to actual revert backend
+      alert(`Revert ${itemId} — not yet wired to backend`)
+      setStage(0)
+    }
+  }
+
+  return (
+    <button onClick={handleClick} style={{
+      fontSize: 11, color: cur.color, background: cur.bg,
+      border: `1px solid ${cur.border}`, borderRadius: 6,
+      padding: '3px 8px', cursor: 'pointer', display: 'flex',
+      alignItems: 'center', gap: 4, transition: 'all 0.2s',
+      fontWeight: stage > 0 ? 600 : 400,
+    }}>
+      <IconArrowBackUp size={12} />
+      {stage > 0 && <IconAlertTriangle size={11} />}
+      {cur.text}
+    </button>
+  )
+}
+
 function ProjectFilterBar({ activeProject, onSelect }) {
   return (
     <div style={{

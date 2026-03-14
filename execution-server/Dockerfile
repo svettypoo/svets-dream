@@ -4,6 +4,7 @@ FROM node:20-slim
 RUN apt-get update && apt-get install -y \
     git curl bash python3 python3-pip unzip ca-certificates \
     pulseaudio pulseaudio-utils ffmpeg alsa-utils \
+    xvfb espeak-ng \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 # PulseAudio config — allow daemonize in container, no sandbox
