@@ -624,7 +624,7 @@ async function handleBrowser(action, sessionId, params) {
     }
 
     if (action === 'screenshot') {
-      const screenshot = await page.screenshot({ type: 'png', fullPage: params.fullPage || false })
+      const screenshot = await page.screenshot({ type: 'png', fullPage: params.fullPage || false, timeout: 60000 })
       const title = await page.title()
       autoUploadScreenshot(screenshot, sessionId)
       return { ok: true, title, url: page.url(), screenshot: screenshot.toString('base64') }
@@ -633,9 +633,9 @@ async function handleBrowser(action, sessionId, params) {
     if (action === 'click') {
       // Try selector first, then text match
       try {
-        await page.click(params.selector, { timeout: 10000 })
+        await page.click(params.selector, { timeout: 30000 })
       } catch {
-        await page.getByText(params.selector).first().click({ timeout: 10000 })
+        await page.getByText(params.selector).first().click({ timeout: 30000 })
       }
       await page.waitForLoadState('domcontentloaded').catch(() => {})
       const screenshot = await page.screenshot({ type: 'png', fullPage: false })
