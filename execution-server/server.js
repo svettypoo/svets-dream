@@ -24,10 +24,89 @@
  */
 
 const http = require('http')
+const https = require('https')
 const { spawn, execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const crypto = require('crypto')
+
+// ── Fake video download + Y4M conversion cache ─────────────────────────────────
+const FAKE_VIDEO_CACHE_DIR = '/tmp/fake-video-cache'
+try { fs.mkdirSync(FAKE_VIDEO_CACHE_DIR, { recursive: true }) } catch {}
+
+/**
+ * Downloads a video from a URL and converts it to Y4M format for Chrome's
+ * --use-file-for-fake-video-capture flag. Results are cached by URL hash.
+ *
+ * @param {string} videoUrl - URL to download the video from
+ * @returns {Promise<string>} - Path to the cached Y4M file
+ */
+async function downloadAndConvertToY4M(videoUrl) {
+  const urlHash = crypto.createHash('sha256').update(videoUrl).digest('hex').slice(0, 16)
+  const y4mPath = path.join(FAKE_VIDEO_CACHE_DIR, `${urlHash}.y4m`)
+
+  // Return cached Y4M if it already exists and has content
+  if (fs.existsSync(y4mPath) && fs.statSync(y4mPath).size > 0) {
+    console.log(`[fakeVideo] Cache hit for ${videoUrl} → ${y4mPath}`)
+    return y4mPath
+  }
+
+  console.log(`[fakeVideo] Downloading ${videoUrl}...`)
+
+  // Determine file extension from URL for the temp download
+  const urlPath = new URL(videoUrl).pathname
+  const ext = path.extname(urlPath) || '.mp4'
+  const tmpDownload = path.join(FAKE_VIDEO_CACHE_DIR, `${urlHash}${ext}`)
+
+  // Download the video file
+  await new Promise((resolve, reject) => {
+    const downloadModule = videoUrl.startsWith('https') ? https : http
+    const request = (url, redirectCount = 0) => {
+      if (redirectCount > 5) return reject(new Error('Too many redirects'))
+      downloadModule.get(url, (res) => {
+        // Follow redirects
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return request(res.headers.location, redirectCount + 1)
+        }
+        if (res.statusCode !== 200) {
+          return reject(new Error(`Download failed: HTTP ${res.statusCode}`))
+        }
+        const fileStream = fs.createWriteStream(tmpDownload)
+        res.pipe(fileStream)
+        fileStream.on('finish', () => { fileStream.close(); resolve() })
+        fileStream.on('error', reject)
+      }).on('error', reject)
+    }
+    request(videoUrl)
+  })
+
+  const downloadSize = fs.statSync(tmpDownload).size
+  console.log(`[fakeVideo] Downloaded ${(downloadSize / 1024 / 1024).toFixed(1)}MB → ${tmpDownload}`)
+
+  // Convert to Y4M using ffmpeg
+  // -pix_fmt yuv420p ensures Chrome compatibility
+  // -r 30 sets framerate to 30fps (Chrome default expectation)
+  // -s 1280x720 scales to 720p (reasonable size for fake video)
+  console.log(`[fakeVideo] Converting to Y4M...`)
+  try {
+    execSync(
+      `ffmpeg -y -i "${tmpDownload}" -pix_fmt yuv420p -r 30 -s 1280x720 "${y4mPath}"`,
+      { timeout: 120000, stdio: 'pipe' }
+    )
+  } catch (e) {
+    // Clean up failed conversion
+    try { fs.unlinkSync(y4mPath) } catch {}
+    throw new Error(`ffmpeg conversion failed: ${e.stderr ? e.stderr.toString().slice(-500) : e.message}`)
+  }
+
+  // Clean up the temp download (keep only the Y4M)
+  try { fs.unlinkSync(tmpDownload) } catch {}
+
+  const y4mSize = fs.statSync(y4mPath).size
+  console.log(`[fakeVideo] Conversion complete: ${(y4mSize / 1024 / 1024).toFixed(1)}MB → ${y4mPath}`)
+  return y4mPath
+}
 
 // ── Forge preview tracker ──────────────────────────────────────────────────────
 // Maps workspaceId → { process, port, appDir, startedAt }
@@ -517,6 +596,20 @@ async function handleBrowser(action, sessionId, params) {
     if (params.fakeAudio) sessionOpts.fakeAudio = params.fakeAudio
     if (params.fakeAudioFile) sessionOpts.fakeAudioFile = params.fakeAudioFile
     if (params.fakeVideoFile) sessionOpts.fakeVideoFile = params.fakeVideoFile
+
+    // fakeVideo: URL to a video file — download + convert to Y4M for Chrome fake video capture
+    // This automatically enables fakeAudio (needed for --use-fake-device-for-media-stream)
+    if (params.fakeVideo && !browserSessions.has(sessionId)) {
+      try {
+        const y4mPath = await downloadAndConvertToY4M(params.fakeVideo)
+        sessionOpts.fakeVideoFile = y4mPath
+        sessionOpts.fakeAudio = true // fakeAudio must be on for fake media flags
+        console.log(`[fakeVideo] Session ${sessionId} will use ${y4mPath}`)
+      } catch (e) {
+        console.error(`[fakeVideo] Failed for ${params.fakeVideo}: ${e.message}`)
+        return { ok: false, error: `fakeVideo conversion failed: ${e.message}` }
+      }
+    }
 
     const session = await getSession(sessionId, sessionOpts)
     const { page } = session
