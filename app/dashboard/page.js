@@ -27,71 +27,51 @@ const TABS = [
   { id: 'liveview', label: 'Live View', icon: IconEye },
 ]
 
-/* ── Demo data ────────────────────────────────────── */
-function generateDemoData() {
-  const modules = MODULES.filter(m => m.id !== 'all')
-  const screenshots = []
-  const videos = []
-  const changes = []
-  const now = Date.now()
+const MEDIA_BASE = 'https://media.stproperties.com'
 
-  for (let i = 0; i < 12; i++) {
-    const mod = modules[i % modules.length]
-    const ts = now - i * 1000 * 60 * (15 + Math.floor(Math.random() * 45))
-    screenshots.push({
-      id: `ss-${i}`,
-      module: mod.id,
-      moduleLabel: mod.label,
-      moduleColor: mod.color,
-      timestamp: ts,
-      commit: Math.random().toString(36).slice(2, 9),
-      url: null,
-    })
+/* ── Map media items to display format ────────────── */
+function mapMediaItem(item) {
+  const mod = MODULES.find(m => m.id !== 'all' && m.id === guessModule(item)) || { id: 'unknown', label: 'Unknown', color: '#475569' }
+  return {
+    id: item.id,
+    module: mod.id,
+    moduleLabel: mod.label,
+    moduleColor: mod.color,
+    timestamp: new Date(item.created_at + 'Z').getTime(),
+    url: `${MEDIA_BASE}/media/${item.id}`,
+    thumbUrl: `${MEDIA_BASE}/media/${item.id}/thumb`,
+    commit: item.id.slice(0, 7),
+    duration: item.duration_ms ? Math.round(item.duration_ms / 1000) : 0,
+    source: item.source || '',
+    width: item.width,
+    height: item.height,
+    size: item.size_bytes,
   }
+}
 
-  for (let i = 0; i < 6; i++) {
-    const mod = modules[i % modules.length]
-    const ts = now - i * 1000 * 60 * (30 + Math.floor(Math.random() * 60))
-    videos.push({
-      id: `vid-${i}`,
-      module: mod.id,
-      moduleLabel: mod.label,
-      moduleColor: mod.color,
-      timestamp: ts,
-      duration: 10 + Math.floor(Math.random() * 50),
-      commit: Math.random().toString(36).slice(2, 9),
-    })
-  }
+/* Guess module from source/tags — will improve over time */
+function guessModule(item) {
+  const src = (item.source || '').toLowerCase()
+  const tags = typeof item.tags === 'string' ? item.tags : JSON.stringify(item.tags || [])
+  const all = src + ' ' + tags
+  if (all.includes('meet')) return 'meet'
+  if (all.includes('concierge')) return 'concierge'
+  if (all.includes('connect') || all.includes('phone')) return 'connect-ops'
+  if (all.includes('birthday')) return 'birthdayboard'
+  if (all.includes('parking')) return 'parking'
+  if (all.includes('atlas')) return 'atlas'
+  if (all.includes('matchfit')) return 'matchfit'
+  if (all.includes('frontdesk') || all.includes('front-desk')) return 'frontdesk'
+  return 'all'
+}
 
-  for (let i = 0; i < 20; i++) {
-    const mod = modules[i % modules.length]
-    const ts = now - i * 1000 * 60 * (10 + Math.floor(Math.random() * 120))
-    const types = ['deploy', 'fix', 'feature', 'refactor', 'hotfix']
-    changes.push({
-      id: `ch-${i}`,
-      module: mod.id,
-      moduleLabel: mod.label,
-      moduleColor: mod.color,
-      timestamp: ts,
-      type: types[i % types.length],
-      commit: Math.random().toString(36).slice(2, 9),
-      message: [
-        'Fix: pin meeting toolbar to bottom on mobile',
-        'Add SSO unified login mockup',
-        'Fix CDN caching: set s-maxage=60',
-        'Update phone.conf nginx proxy to port 3002',
-        'Deploy Connect Ops to Hetzner via pm2',
-        'Add mobile bottom nav for Dialer',
-        'Fix: inline app launcher via client component',
-        'Refactor auth middleware for JWT cookie',
-        'Add Tabler Icons as standard icon library',
-        'Remove Forge app and clean up DNS',
-      ][i % 10],
-      canRevert: i < 8,
-    })
-  }
-
-  return { screenshots, videos, changes }
+async function fetchMedia(type, limit = 50) {
+  try {
+    const res = await fetch(`/api/media?type=${type}&limit=${limit}`)
+    const data = await res.json()
+    if (data.ok && data.items) return data.items.map(mapMediaItem)
+  } catch (e) { console.error('fetch media error:', e) }
+  return []
 }
 
 /* ── Helpers ──────────────────────────────────────── */
@@ -269,12 +249,24 @@ function ScreenshotGrid({ items }) {
           onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f640'; e.currentTarget.style.boxShadow = '0 0 20px rgba(59,130,246,0.1)' }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = '#1a2744'; e.currentTarget.style.boxShadow = 'none' }}
         >
-          {/* Thumbnail placeholder */}
+          {/* Thumbnail */}
           <div style={{
             aspectRatio: '16/9', background: '#0f1629',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden',
           }}>
-            <IconCamera size={32} color="#1e3050" />
+            {item.url ? (
+              <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ width: '100%', height: '100%' }}>
+                <img
+                  src={item.thumbUrl || item.url}
+                  alt={`${item.moduleLabel} screenshot`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  loading="lazy"
+                />
+              </a>
+            ) : (
+              <IconCamera size={32} color="#1e3050" />
+            )}
           </div>
           {/* Meta */}
           <div style={{ padding: '12px 14px' }}>
@@ -321,8 +313,15 @@ function VideoGrid({ items }) {
           <div style={{
             aspectRatio: '16/9', background: '#0f1629',
             display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+            overflow: 'hidden',
           }}>
-            <IconVideo size={32} color="#1e3050" />
+            {item.url ? (
+              <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0e1a' }}>
+                <IconVideo size={40} color="#3b82f6" style={{ opacity: 0.6 }} />
+              </a>
+            ) : (
+              <IconVideo size={32} color="#1e3050" />
+            )}
             <span style={{
               position: 'absolute', bottom: 8, right: 8, fontSize: 11, color: '#e2e8f0',
               background: '#000000aa', borderRadius: 4, padding: '2px 6px', fontFamily: 'monospace',
@@ -529,10 +528,21 @@ export default function Dashboard() {
   }, [activeModule])
 
   useEffect(() => {
-    setData(generateDemoData())
+    async function load() {
+      const [screenshots, videos] = await Promise.all([
+        fetchMedia('screenshots', 50),
+        fetchMedia('videos', 30),
+      ])
+      setData({ screenshots, videos })
+    }
+    load()
   }, [])
 
-  if (!data) return null
+  if (!data) return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: '#0a0e1a', color: '#475569' }}>
+      Loading...
+    </div>
+  )
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#0a0e1a' }}>
@@ -545,7 +555,11 @@ export default function Dashboard() {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {activeTab === 'screenshots' && <ScreenshotGrid items={filter(data.screenshots)} />}
           {activeTab === 'videos' && <VideoGrid items={filter(data.videos)} />}
-          {activeTab === 'changelog' && <ChangeLog items={filter(data.changes)} />}
+          {activeTab === 'changelog' && (
+            <div style={{ padding: 24, color: '#475569', fontSize: 13 }}>
+              Change log will be wired to git commit history. Coming soon.
+            </div>
+          )}
           {activeTab === 'liveview' && <LiveView />}
         </div>
 
